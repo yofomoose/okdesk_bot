@@ -131,19 +131,69 @@ class OkdeskAPI:
         response = await self._make_request('POST', '/issues', data)
         return response if response else {}
     
-    async def add_comment(self, issue_id: int, content: str, is_public: bool = True, author_id: int = None) -> Dict:
+    async def add_comment(self, issue_id: int, content: str, is_public: bool = True, author_id: int = None, author_name: str = None) -> Dict:
         """Добавить комментарий к заявке"""
         data = {
             'content': content,
             'public': is_public
         }
         
-        # Добавляем author_id если указан
-        if author_id:
+        # Если указано имя автора, добавляем его в текст комментария
+        if author_name and not author_id:
+            # Добавляем имя автора в начало комментария
+            data['content'] = f"**От {author_name}:**\n\n{content}"
+        elif author_id:
+            # Если есть author_id, используем его
             data['author_id'] = author_id
         
         response = await self._make_request('POST', f'/issues/{issue_id}/comments', data)
         return response if response else {}
+    
+    async def get_employees(self, limit: int = 50) -> List[Dict]:
+        """Получить список сотрудников"""
+        try:
+            endpoint = f"/employees?limit={limit}"
+            response = await self._make_request('GET', endpoint)
+            
+            if not response:
+                return []
+            
+            if isinstance(response, list):
+                return response
+            elif isinstance(response, dict) and 'data' in response:
+                return response['data']
+            return []
+        except Exception as e:
+            logger.error(f"Ошибка получения сотрудников: {e}")
+            return []
+    
+    async def find_employee_by_name(self, full_name: str) -> Optional[Dict]:
+        """Найти сотрудника по имени"""
+        try:
+            employees = await self.get_employees(100)
+            
+            # Нормализуем имя для поиска
+            search_name = full_name.lower().strip()
+            
+            for employee in employees:
+                # Проверяем разные варианты имени
+                employee_name = employee.get('name', '').lower().strip()
+                first_name = employee.get('first_name', '').lower().strip()
+                last_name = employee.get('last_name', '').lower().strip()
+                full_employee_name = f"{first_name} {last_name}".strip()
+                
+                if (employee_name == search_name or 
+                    full_employee_name == search_name or
+                    search_name in employee_name or
+                    search_name in full_employee_name):
+                    logger.info(f"Найден сотрудник: {employee.get('name', full_employee_name)} (ID: {employee.get('id')})")
+                    return employee
+            
+            logger.info(f"Сотрудник с именем '{full_name}' не найден")
+            return None
+        except Exception as e:
+            logger.error(f"Ошибка поиска сотрудника: {e}")
+            return None
     
     async def get_current_user(self) -> Dict:
         """Получить информацию о текущем пользователе API"""

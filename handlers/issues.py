@@ -286,18 +286,33 @@ async def process_comment(message: Message, state: FSMContext):
         
         await message.answer("⏳ Добавляю комментарий...")
         
+        # Получаем информацию о пользователе
+        user = UserService.get_user_by_telegram_id(message.from_user.id)
+        if not user:
+            await message.answer("❌ Ошибка: пользователь не найден")
+            await state.clear()
+            return
+        
         # Добавляем комментарий через API Okdesk
         okdesk_api = OkdeskAPI()
         
-        # Получаем информацию о текущем пользователе API для author_id
-        current_user = await okdesk_api.get_current_user()
-        author_id = current_user.get('id') if current_user else None
+        # Пытаемся найти сотрудника с таким именем
+        employee = await okdesk_api.find_employee_by_name(user.full_name)
         
-        response = await okdesk_api.add_comment(
-            issue.okdesk_issue_id, 
-            comment_text, 
-            author_id=author_id
-        )
+        if employee:
+            # Если найден сотрудник, используем его ID
+            response = await okdesk_api.add_comment(
+                issue.okdesk_issue_id, 
+                comment_text, 
+                author_id=employee.get('id')
+            )
+        else:
+            # Если сотрудник не найден, добавляем имя в текст комментария
+            response = await okdesk_api.add_comment(
+                issue.okdesk_issue_id, 
+                comment_text, 
+                author_name=user.full_name
+            )
         
         if response:
             # Сохраняем комментарий в нашей БД
