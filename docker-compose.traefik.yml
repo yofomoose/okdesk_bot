@@ -45,8 +45,14 @@ services:
       - "traefik.http.routers.okdesk-webhook.rule=Host(`okbot.teftelyatun.ru`)"
       - "traefik.http.routers.okdesk-webhook.tls=true"
       - "traefik.http.routers.okdesk-webhook.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.okdesk-webhook.entrypoints=websecure"
       - "traefik.http.services.okdesk-webhook.loadbalancer.server.port=8000"
       - "traefik.docker.network=n8n_default"
+      # Redirect HTTP to HTTPS
+      - "traefik.http.routers.okdesk-webhook-http.rule=Host(`okbot.teftelyatun.ru`)"
+      - "traefik.http.routers.okdesk-webhook-http.entrypoints=web"
+      - "traefik.http.routers.okdesk-webhook-http.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
 
 volumes:
   bot_data:
