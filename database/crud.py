@@ -1,0 +1,158 @@
+from models.database import SessionLocal, User, Issue, Comment
+from sqlalchemy.orm import Session
+from typing import Optional, List
+
+class UserService:
+    """Сервис для работы с пользователями"""
+    
+    @staticmethod
+    def get_user_by_telegram_id(telegram_id: int) -> Optional[User]:
+        """Получить пользователя по Telegram ID"""
+        db = SessionLocal()
+        try:
+            return db.query(User).filter(User.telegram_id == telegram_id).first()
+        finally:
+            db.close()
+    
+    @staticmethod
+    def create_user(telegram_id: int, username: str = None) -> User:
+        """Создать нового пользователя"""
+        db = SessionLocal()
+        try:
+            user = User(
+                telegram_id=telegram_id,
+                username=username,
+                user_type="",  # Будет установлен позже
+                is_registered=False
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            return user
+        finally:
+            db.close()
+    
+    @staticmethod
+    def update_user_physical(user_id: int, full_name: str, phone: str) -> Optional[User]:
+        """Обновить данные физического лица"""
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                user.user_type = "physical"
+                user.full_name = full_name
+                user.phone = phone
+                user.is_registered = True
+                db.commit()
+                db.refresh(user)
+            return user
+        finally:
+            db.close()
+    
+    @staticmethod
+    def update_user_legal(user_id: int, inn_company: str, company_id: int = None, company_name: str = None) -> Optional[User]:
+        """Обновить данные юридического лица"""
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                user.user_type = "legal"
+                user.inn_company = inn_company
+                user.company_id = company_id
+                user.company_name = company_name
+                user.is_registered = True
+                db.commit()
+                db.refresh(user)
+            return user
+        finally:
+            db.close()
+
+class IssueService:
+    """Сервис для работы с заявками"""
+    
+    @staticmethod
+    def create_issue(telegram_user_id: int, okdesk_issue_id: int, title: str, 
+                    description: str = None, status: str = "opened", 
+                    okdesk_url: str = None, issue_number: str = None) -> Issue:
+        """Создать новую заявку"""
+        db = SessionLocal()
+        try:
+            issue = Issue(
+                telegram_user_id=telegram_user_id,
+                okdesk_issue_id=okdesk_issue_id,
+                title=title,
+                description=description,
+                status=status,
+                okdesk_url=okdesk_url,
+                issue_number=issue_number
+            )
+            db.add(issue)
+            db.commit()
+            db.refresh(issue)
+            return issue
+        finally:
+            db.close()
+    
+    @staticmethod
+    def get_user_issues(telegram_user_id: int) -> List[Issue]:
+        """Получить все заявки пользователя"""
+        db = SessionLocal()
+        try:
+            return db.query(Issue).filter(Issue.telegram_user_id == telegram_user_id).all()
+        finally:
+            db.close()
+    
+    @staticmethod
+    def get_issue_by_okdesk_id(okdesk_issue_id: int) -> Optional[Issue]:
+        """Получить заявку по ID в Okdesk"""
+        db = SessionLocal()
+        try:
+            return db.query(Issue).filter(Issue.okdesk_issue_id == okdesk_issue_id).first()
+        finally:
+            db.close()
+    
+    @staticmethod
+    def update_issue_status(issue_id: int, status: str) -> Optional[Issue]:
+        """Обновить статус заявки"""
+        db = SessionLocal()
+        try:
+            issue = db.query(Issue).filter(Issue.id == issue_id).first()
+            if issue:
+                issue.status = status
+                db.commit()
+                db.refresh(issue)
+            return issue
+        finally:
+            db.close()
+
+class CommentService:
+    """Сервис для работы с комментариями"""
+    
+    @staticmethod
+    def add_comment(issue_id: int, telegram_user_id: int, content: str, 
+                   okdesk_comment_id: int = None, is_from_okdesk: bool = False) -> Comment:
+        """Добавить комментарий"""
+        db = SessionLocal()
+        try:
+            comment = Comment(
+                issue_id=issue_id,
+                telegram_user_id=telegram_user_id,
+                content=content,
+                okdesk_comment_id=okdesk_comment_id,
+                is_from_okdesk=is_from_okdesk
+            )
+            db.add(comment)
+            db.commit()
+            db.refresh(comment)
+            return comment
+        finally:
+            db.close()
+    
+    @staticmethod
+    def get_issue_comments(issue_id: int) -> List[Comment]:
+        """Получить все комментарии заявки"""
+        db = SessionLocal()
+        try:
+            return db.query(Comment).filter(Comment.issue_id == issue_id).all()
+        finally:
+            db.close()
