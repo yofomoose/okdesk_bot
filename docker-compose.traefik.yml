@@ -44,7 +44,7 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.okdesk-webhook.rule=Host(`okbot.teftelyatun.ru`)"
       - "traefik.http.routers.okdesk-webhook.tls=true"
-      - "traefik.http.routers.okdesk-webhook.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.okdesk-webhook.tls.certresolver=mytlschallenge"
       - "traefik.http.routers.okdesk-webhook.entrypoints=websecure"
       - "traefik.http.services.okdesk-webhook.loadbalancer.server.port=8000"
       - "traefik.docker.network=n8n_default"
