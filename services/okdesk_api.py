@@ -133,26 +133,20 @@ class OkdeskAPI:
     
     async def add_comment(self, issue_id: int, content: str, is_public: bool = True, author_id: int = None, author_name: str = None) -> Dict:
         """Добавить комментарий к заявке"""
+        
+        # Если указано имя реального автора, форматируем комментарий
+        if author_name:
+            formatted_content = f"**От клиента: {author_name}**\n\n{content}"
+        else:
+            formatted_content = content
+        
         data = {
-            'content': content,
+            'content': formatted_content,
             'public': is_public
         }
         
-        # Если author_id не указан, получаем ID текущего пользователя API
-        if not author_id:
-            current_user = await self.get_current_user()
-            if current_user and current_user.get('id'):
-                author_id = current_user['id']
-            else:
-                # Fallback: используем фиксированный ID или получаем из профиля
-                author_id = 1  # ID пользователя API по умолчанию
-        
-        # Всегда указываем author_id (обязательное поле)
-        data['author_id'] = author_id
-        
-        # Если указано имя автора, добавляем его в текст комментария
-        if author_name:
-            data['content'] = f"**От {author_name}:**\n\n{content}"
+        # Не указываем author_id - пусть API автоматически использует владельца токена
+        # Это решает проблему "пользователь не найден" и "сотрудник не активен"
         
         response = await self._make_request('POST', f'/issues/{issue_id}/comments', data)
         return response if response else {}

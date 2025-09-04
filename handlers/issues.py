@@ -296,31 +296,13 @@ async def process_comment(message: Message, state: FSMContext):
         # Добавляем комментарий через API Okdesk
         okdesk_api = OkdeskAPI()
         
-        # Получаем ID контакта пользователя из Okdesk
-        # Ищем контакт по номеру телефона
-        contacts = await okdesk_api.get_contacts(limit=100, phone=user.phone)
-        contact_id = None
-        
-        if contacts:
-            for contact in contacts:
-                if contact.get('phone') == user.phone:
-                    contact_id = contact.get('id')
-                    break
-        
-        if contact_id:
-            # Используем ID контакта как автора комментария
-            response = await okdesk_api.add_comment(
-                issue.okdesk_issue_id, 
-                comment_text, 
-                author_id=contact_id
-            )
-        else:
-            # Если контакт не найден, добавляем имя в текст комментария
-            response = await okdesk_api.add_comment(
-                issue.okdesk_issue_id, 
-                comment_text, 
-                author_name=user.full_name
-            )
+        # Всегда используем системного пользователя как автора,
+        # но указываем имя реального автора в тексте комментария
+        response = await okdesk_api.add_comment(
+            issue.okdesk_issue_id, 
+            comment_text, 
+            author_name=user.full_name
+        )
         
         if response:
             # Сохраняем комментарий в нашей БД

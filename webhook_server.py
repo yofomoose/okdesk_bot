@@ -10,6 +10,16 @@ import config
 
 app = FastAPI()
 
+@app.get("/")
+async def root():
+    """Корневой endpoint для проверки работы сервера"""
+    return {"message": "Okdesk Bot Webhook Server is running", "status": "ok"}
+
+@app.get(config.WEBHOOK_PATH)
+async def webhook_info():
+    """Информация о webhook endpoint"""
+    return {"message": "Webhook endpoint is ready", "path": config.WEBHOOK_PATH}
+
 class WebhookData(BaseModel):
     """Модель данных вебхука"""
     event: str
@@ -17,34 +27,58 @@ class WebhookData(BaseModel):
     timestamp: Optional[int] = None
 
 @app.post(config.WEBHOOK_PATH)
-async def webhook_handler(request: Request, webhook_data: WebhookData):
+async def webhook_handler(request: Request):
     """Обработчик вебхуков от Okdesk"""
     
-    # Проверяем подпись вебхука (только если настроен секретный ключ)
-    if config.WEBHOOK_SECRET and config.WEBHOOK_SECRET.strip():
-        signature = request.headers.get("X-Okdesk-Signature")
-        if not verify_webhook_signature(await request.body(), signature):
-            raise HTTPException(status_code=403, detail="Invalid signature")
-    
-    event = webhook_data.event
-    data = webhook_data.data
-    
     try:
-        if event == "issue.created":
-            await handle_issue_created(data)
-        elif event == "issue.updated":
-            await handle_issue_updated(data)
-        elif event == "comment.created":
-            await handle_comment_created(data)
-        elif event == "issue.status_changed":
-            await handle_status_changed(data)
-        else:
-            print(f"Unknown event: {event}")
+        # Получаем тело запроса
+        body = await request.body()
+        print(f"🎣 Получен webhook (raw): {body.decode('utf-8')}")
         
-        return {"status": "success"}
+        # Пробуем парсить JSON
+        try:
+            data = json.loads(body.decode('utf-8'))
+            print(f"📄 Parsed JSON: {json.dumps(data, indent=2, ensure_ascii=False)}")
+        except Exception as e:
+            print(f"❌ Ошибка парсинга JSON: {e}")
+            return {"message": "Webhook received", "error": "Invalid JSON"}
+        
+        # Проверяем подпись вебхука (только если настроен секретный ключ)
+        if config.WEBHOOK_SECRET and config.WEBHOOK_SECRET.strip():
+            signature = request.headers.get("X-Okdesk-Signature")
+            if not verify_webhook_signature(body, signature):
+                raise HTTPException(status_code=403, detail="Invalid signature")
+        
+        # Определяем тип события
+        event = data.get("event", "unknown")
+        event_data = data.get("data", data)
+        
+        print(f"📊 Event: {event}")
+        
+        try:
+            if event == "issue.created":
+                await handle_issue_created(event_data)
+            elif event == "issue.updated":
+                await handle_issue_updated(event_data)
+            elif event == "comment.created":
+                await handle_comment_created(event_data)
+            elif event == "issue.status_changed":
+                await handle_status_changed(event_data)
+            else:
+                print(f"❓ Unknown event: {event}")
+                # Пробуем обработать как комментарий, если есть признаки
+                if "comment" in str(data).lower() or "content" in data:
+                    print("🔄 Пробуем обработать как комментарий...")
+                    await handle_comment_created(data)
+            
+            return {"status": "success", "event": event}
+        
+        except Exception as e:
+            print(f"❌ Webhook processing error: {e}")
+            return {"status": "error", "message": str(e)}
     
     except Exception as e:
-        print(f"Webhook processing error: {e}")
+        print(f"❌ Request processing error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 async def handle_issue_created(data: Dict[str, Any]):
