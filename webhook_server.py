@@ -5,14 +5,13 @@ import json
 import hmac
 import hashlib
 from database.crud import IssueService, CommentService, UserService
-from models.database import create_tables, engine, Base
+from models.database import create_tables
 from services.okdesk_api import OkdeskAPI
 import config
 
-# Инициализируем базу данных при запуске (создаем таблицы только если они не существуют)
+# Инициализируем базу данных при запуске (используем ту же функцию, что и бот)
 try:
-    # Создаем таблицы только если их нет (не удаляя существующие данные)
-    Base.metadata.create_all(bind=engine, checkfirst=True)
+    create_tables()
     print("✅ База данных подключена")
 except Exception as e:
     print(f"⚠️ Ошибка подключения к базе данных: {e}")
@@ -68,8 +67,8 @@ async def webhook_handler(request: Request):
         print(f"📊 Event: {event}")
         
         try:
-            if event == "issue.created":
-                await handle_issue_created(event_data)
+            if event == "issue.created" or event == "new_ticket":
+                await handle_issue_created(data.get("issue", event_data))
             elif event == "issue.updated":
                 await handle_issue_updated(event_data)
             elif event == "comment.created" or event == "new_comment":
