@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # Nginx Proxy Manager
+  nginx-proxy-manager:
+    image: 'jc21/nginx-proxy-manager:latest'
+    restart: unless-stopped
+    ports:
+      - '80:80'     # HTTP
+      - '443:443'   # HTTPS
+      - '81:81'     # NPM Admin Panel
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    environment:
+      DB_SQLITE_FILE: "/data/database.sqlite"
+    networks:
+      - okdesk_network
+
+  # Telegram Bot
+  okdesk_bot:
+    build: .
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - OKDESK_API_URL=${OKDESK_API_URL}
+      - OKDESK_API_TOKEN=${OKDESK_API_TOKEN}
+      - DATABASE_URL=${DATABASE_URL}
+      - ADMIN_IDS=${ADMIN_IDS}
+    volumes:
+      - bot_data:/app/data
+    depends_on:
+      - okdesk_webhook
+    networks:
+      - okdesk_network
+
+  # Webhook Server
+  okdesk_webhook:
+    build: .
+    restart: unless-stopped
+    command: python webhook_server.py
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - OKDESK_API_URL=${OKDESK_API_URL}
+      - OKDESK_API_TOKEN=${OKDESK_API_TOKEN}
+      - WEBHOOK_PATH=${WEBHOOK_PATH}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - DATABASE_URL=${DATABASE_URL}
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - bot_data:/app/data
+    networks:
+      - okdesk_network
+    # Убираем внешние порты - теперь доступ только через NPM
+    expose:
+      - "8000"
+
+volumes:
+  bot_data:
+  npm_data:
+  npm_letsencrypt:
+
+networks:
+  okdesk_network:
+    driver: bridge
