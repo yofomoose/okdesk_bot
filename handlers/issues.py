@@ -11,6 +11,18 @@ import config
 
 router = Router()
 
+def is_user_registered(user) -> bool:
+    """Проверяет, зарегистрирован ли пользователь по фактическим данным"""
+    if not user:
+        return False
+    
+    if user.user_type == "physical" and user.full_name and user.phone:
+        return True
+    elif user.user_type == "legal" and user.inn_company:
+        return True
+    
+    return False
+
 class IssueStates(StatesGroup):
     waiting_for_description = State()
     waiting_for_comment = State()
@@ -20,7 +32,7 @@ async def cmd_menu(message: Message):
     """Главное меню"""
     user = UserService.get_user_by_telegram_id(message.from_user.id)
     
-    if not user or not user.is_registered:
+    if not is_user_registered(user):
         await message.answer(
             "❌ Вы не зарегистрированы в системе.\n"
             "Используйте команду /start для регистрации."
@@ -71,7 +83,7 @@ async def cmd_create_issue(message: Message, state: FSMContext):
     """Быстрое создание заявки через команду"""
     user = UserService.get_user_by_telegram_id(message.from_user.id)
     
-    if not user or not user.is_registered:
+    if not is_user_registered(user):
         await message.answer(
             "❌ Вы не зарегистрированы в системе.\n"
             "Используйте команду /start для регистрации."

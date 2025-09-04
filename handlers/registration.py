@@ -10,6 +10,18 @@ import config
 
 router = Router()
 
+def is_user_registered(user) -> bool:
+    """Проверяет, зарегистрирован ли пользователь по фактическим данным"""
+    if not user:
+        return False
+    
+    if user.user_type == "physical" and user.full_name and user.phone:
+        return True
+    elif user.user_type == "legal" and user.inn_company:
+        return True
+    
+    return False
+
 class RegistrationStates(StatesGroup):
     waiting_for_user_type = State()
     waiting_for_full_name = State()
@@ -21,7 +33,7 @@ async def cmd_start(message: Message, state: FSMContext):
     """Обработчик команды /start"""
     user = UserService.get_user_by_telegram_id(message.from_user.id)
     
-    if user and user.is_registered:
+    if is_user_registered(user):
         await message.answer(
             f"👋 Добро пожаловать обратно!\n\n"
             f"Вы зарегистрированы как: {get_user_type_text(user.user_type)}\n"
