@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # Отдельный Traefik с SSL для okdesk bot
+  traefik-ssl:
+    image: traefik:v3.1
+    restart: unless-stopped
+    ports:
+      - "8080:80"   # HTTP на порту 8080
+      - "8443:443"  # HTTPS на порту 8443
+      - "8888:8080" # Dashboard
+    command:
+      # API и Dashboard
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=okdesk_ssl_network"
+      # Certificate resolver для Let's Encrypt
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=admin@teftelyatun.ru"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      # Автоматический редирект HTTP -> HTTPS
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_ssl_certs:/letsencrypt
+    networks:
+      - okdesk_ssl_network
+
+  # Telegram Bot
+  okdesk_bot:
+    build: .
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - OKDESK_API_URL=${OKDESK_API_URL}
+      - OKDESK_API_TOKEN=${OKDESK_API_TOKEN}
+      - DATABASE_URL=${DATABASE_URL}
+      - ADMIN_IDS=${ADMIN_IDS}
+    volumes:
+      - bot_data:/app/data
+    depends_on:
+      - okdesk_webhook
+    networks:
+      - okdesk_ssl_network
+
+  # Webhook Server с SSL
+  okdesk_webhook:
+    build: .
+    restart: unless-stopped
+    command: python webhook_server.py
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - OKDESK_API_URL=${OKDESK_API_URL}
+      - OKDESK_API_TOKEN=${OKDESK_API_TOKEN}
+      - WEBHOOK_PATH=${WEBHOOK_PATH}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - DATABASE_URL=${DATABASE_URL}
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - bot_data:/app/data
+    networks:
+      - okdesk_ssl_network
+    expose:
+      - "8000"
+    labels:
+      # Traefik метки для SSL
+      - "traefik.enable=true"
+      - "traefik.docker.network=okdesk_ssl_network"
+      # HTTP маршрут (редиректится на HTTPS)
+      - "traefik.http.routers.okdesk-webhook-http.rule=Host(`okbot.teftelyatun.ru`)"
+      - "traefik.http.routers.okdesk-webhook-http.entrypoints=web"
+      # HTTPS маршрут с SSL
+      - "traefik.http.routers.okdesk-webhook-https.rule=Host(`okbot.teftelyatun.ru`)"
+      - "traefik.http.routers.okdesk-webhook-https.entrypoints=websecure"
+      - "traefik.http.routers.okdesk-webhook-https.tls=true"
+      - "traefik.http.routers.okdesk-webhook-https.tls.certresolver=letsencrypt"
+      # Сервис
+      - "traefik.http.services.okdesk-webhook.loadbalancer.server.port=8000"
+
+volumes:
+  bot_data:
+  traefik_ssl_certs:
+
+networks:
+  okdesk_ssl_network:
+    driver: bridge
