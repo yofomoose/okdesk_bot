@@ -136,46 +136,49 @@ async def process_issue_description(message: Message, state: FSMContext):
     
     # Создаем заявку через API Okdesk
     okdesk_api = OkdeskAPI()
-    response = await okdesk_api.create_issue(title, description, **user_data)
-    
-    if response and "id" in response:
-        # Заявка успешно создана в Okdesk
-        okdesk_issue_id = response["id"]
-        issue_number = response.get("number", str(okdesk_issue_id))
-        okdesk_url = f"{config.OKDESK_API_URL.replace('/api/v1', '')}/issues/{okdesk_issue_id}"
+    try:
+        response = await okdesk_api.create_issue(title, description, **user_data)
         
-        # Сохраняем заявку в нашей БД
-        issue = IssueService.create_issue(
-            telegram_user_id=user.telegram_id,
-            okdesk_issue_id=okdesk_issue_id,
-            title=title,
-            description=description,
-            status="opened",
-            okdesk_url=okdesk_url,
-            issue_number=issue_number
-        )
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔗 Открыть заявку", url=okdesk_url)],
-            [InlineKeyboardButton(text="💬 Добавить комментарий", callback_data=f"add_comment_{issue.id}")],
-            [InlineKeyboardButton(text="🔄 Проверить статус", callback_data=f"check_status_{issue.id}")],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-        ])
-        
-        await message.answer(
-            f"✅ Заявка успешно создана!\n\n"
-            f"📋 Номер заявки: #{issue_number}\n"
-            f"📝 Заголовок: {title}\n"
-            f"📊 Статус: {config.ISSUE_STATUS_MESSAGES.get('opened', 'Открыта')}\n\n"
-            f"🔗 Ссылка на заявку: {okdesk_url}\n\n"
-            f"Вы можете отслеживать статус заявки и добавлять комментарии.",
-            reply_markup=keyboard
-        )
-    else:
-        await message.answer(
-            "❌ Ошибка при создании заявки.\n"
-            "Попробуйте еще раз или обратитесь к администратору."
-        )
+        if response and "id" in response:
+            # Заявка успешно создана в Okdesk
+            okdesk_issue_id = response["id"]
+            issue_number = response.get("number", str(okdesk_issue_id))
+            okdesk_url = f"{config.OKDESK_API_URL.replace('/api/v1', '')}/issues/{okdesk_issue_id}"
+            
+            # Сохраняем заявку в нашей БД
+            issue = IssueService.create_issue(
+                telegram_user_id=user.telegram_id,
+                okdesk_issue_id=okdesk_issue_id,
+                title=title,
+                description=description,
+                status="opened",
+                okdesk_url=okdesk_url,
+                issue_number=issue_number
+            )
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔗 Открыть заявку", url=okdesk_url)],
+                [InlineKeyboardButton(text="💬 Добавить комментарий", callback_data=f"add_comment_{issue.id}")],
+                [InlineKeyboardButton(text="🔄 Проверить статус", callback_data=f"check_status_{issue.id}")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+            ])
+            
+            await message.answer(
+                f"✅ Заявка успешно создана!\n\n"
+                f"📋 Номер заявки: #{issue_number}\n"
+                f"📝 Заголовок: {title}\n"
+                f"📊 Статус: {config.ISSUE_STATUS_MESSAGES.get('opened', 'Открыта')}\n\n"
+                f"🔗 Ссылка на заявку: {okdesk_url}\n\n"
+                f"Вы можете отслеживать статус заявки и добавлять комментарии.",
+                reply_markup=keyboard
+            )
+        else:
+            await message.answer(
+                "❌ Ошибка при создании заявки.\n"
+                "Попробуйте еще раз или обратитесь к администратору."
+            )
+    finally:
+        await okdesk_api.close()
     
     await state.clear()
 
@@ -234,18 +237,21 @@ async def view_issue(callback: CallbackQuery):
         
         # Получаем актуальную информацию из Okdesk
         okdesk_api = OkdeskAPI()
-        okdesk_issue = await okdesk_api.get_issue(issue.okdesk_issue_id)
-        
-        if okdesk_issue:
-            # Обновляем статус в нашей БД
-            current_status = okdesk_issue.get("status", issue.status)
-            # Если статус - словарь, извлекаем код
-            if isinstance(current_status, dict):
-                current_status = current_status.get("code", current_status)
+        try:
+            okdesk_issue = await okdesk_api.get_issue(issue.okdesk_issue_id)
             
-            if current_status != issue.status:
-                issue.status = current_status
-                db.commit()
+            if okdesk_issue:
+                # Обновляем статус в нашей БД
+                current_status = okdesk_issue.get("status", issue.status)
+                # Если статус - словарь, извлекаем код
+                if isinstance(current_status, dict):
+                    current_status = current_status.get("code", current_status)
+                
+                if current_status != issue.status:
+                    issue.status = current_status
+                    db.commit()
+        finally:
+            await okdesk_api.close()
         
         status_text = config.ISSUE_STATUS_MESSAGES.get(issue.status, issue.status)
         
@@ -307,30 +313,32 @@ async def process_comment(message: Message, state: FSMContext):
         
         # Добавляем комментарий через API Okdesk
         okdesk_api = OkdeskAPI()
-        
-        # Всегда используем системного пользователя как автора,
-        # но указываем имя реального автора в тексте комментария
-        response = await okdesk_api.add_comment(
-            issue.okdesk_issue_id, 
-            comment_text, 
-            author_name=user.full_name
-        )
-        
-        if response:
-            # Сохраняем комментарий в нашей БД
-            CommentService.add_comment(
-                issue_id=issue_id,
-                telegram_user_id=message.from_user.id,
-                content=comment_text,
-                okdesk_comment_id=response.get("id")
+        try:
+            # Всегда используем системного пользователя как автора,
+            # но указываем имя реального автора в тексте комментария
+            response = await okdesk_api.add_comment(
+                issue.okdesk_issue_id, 
+                comment_text, 
+                author_name=user.full_name
             )
             
-            await message.answer(
-                f"✅ Комментарий добавлен к заявке #{issue.issue_number}\n\n"
-                f"💬 Ваш комментарий: {comment_text}"
-            )
-        else:
-            await message.answer("❌ Ошибка при добавлении комментария")
+            if response:
+                # Сохраняем комментарий в нашей БД
+                CommentService.add_comment(
+                    issue_id=issue_id,
+                    telegram_user_id=message.from_user.id,
+                    content=comment_text,
+                    okdesk_comment_id=response.get("id")
+                )
+                
+                await message.answer(
+                    f"✅ Комментарий добавлен к заявке #{issue.issue_number}\n\n"
+                    f"💬 Ваш комментарий: {comment_text}"
+                )
+            else:
+                await message.answer("❌ Ошибка при добавлении комментария")
+        finally:
+            await okdesk_api.close()
     finally:
         db.close()
     
@@ -350,27 +358,30 @@ async def check_status(callback: CallbackQuery):
         
         # Получаем актуальную информацию из Okdesk
         okdesk_api = OkdeskAPI()
-        okdesk_issue = await okdesk_api.get_issue(issue.okdesk_issue_id)
-        
-        if okdesk_issue:
-            old_status = issue.status
-            new_status = okdesk_issue.get("status", issue.status)
-            # Если статус - словарь, извлекаем код
-            if isinstance(new_status, dict):
-                new_status = new_status.get("code", new_status)
+        try:
+            okdesk_issue = await okdesk_api.get_issue(issue.okdesk_issue_id)
             
-            if new_status != old_status:
-                # Статус изменился
-                issue.status = new_status
-                db.commit()
+            if okdesk_issue:
+                old_status = issue.status
+                new_status = okdesk_issue.get("status", issue.status)
+                # Если статус - словарь, извлекаем код
+                if isinstance(new_status, dict):
+                    new_status = new_status.get("code", new_status)
                 
-                status_text = config.ISSUE_STATUS_MESSAGES.get(new_status, new_status)
-                await callback.answer(f"📊 Статус обновлен: {status_text}")
+                if new_status != old_status:
+                    # Статус изменился
+                    issue.status = new_status
+                    db.commit()
+                    
+                    status_text = config.ISSUE_STATUS_MESSAGES.get(new_status, new_status)
+                    await callback.answer(f"📊 Статус обновлен: {status_text}")
+                else:
+                    status_text = config.ISSUE_STATUS_MESSAGES.get(new_status, new_status)
+                    await callback.answer(f"📊 Текущий статус: {status_text}")
             else:
-                status_text = config.ISSUE_STATUS_MESSAGES.get(new_status, new_status)
-                await callback.answer(f"📊 Текущий статус: {status_text}")
-        else:
-            await callback.answer("❌ Не удалось получить актуальную информацию")
+                await callback.answer("❌ Не удалось получить актуальную информацию")
+        finally:
+            await okdesk_api.close()
     finally:
         db.close()
 

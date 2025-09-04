@@ -13,6 +13,7 @@ services:
       - ADMIN_IDS=${ADMIN_IDS}
     volumes:
       - bot_data:/app/data
+      - db_data:/app  # Общая база данных
     depends_on:
       - okdesk_webhook
     networks:
@@ -34,6 +35,7 @@ services:
       - PORT=8000
     volumes:
       - bot_data:/app/data
+      - db_data:/app  # Общая база данных
     networks:
       - okdesk_network
       - n8n_default  # Подключаемся к сети Traefik
@@ -56,6 +58,7 @@ services:
 
 volumes:
   bot_data:
+  db_data:  # Общий volume для базы данных
 
 networks:
   okdesk_network:
