@@ -295,6 +295,9 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     
+    # Отладочная информация о конфигурации
+    print(f"🔍 WEBHOOK STARTUP: Используется база данных: {config.DATABASE_URL}")
+    
     # Информация о безопасности webhook
     if config.WEBHOOK_SECRET and config.WEBHOOK_SECRET.strip():
         print("🔐 Webhook защищен секретным ключом")

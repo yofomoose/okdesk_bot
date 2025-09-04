@@ -17,7 +17,16 @@ WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/okdesk-webhook")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
 # Database Configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/data/okdesk_bot.db")
+# Для Docker используется /app/data/, для локального запуска - data/
+import os
+if os.path.exists("/app/data"):
+    # Запущено в Docker контейнере
+    DEFAULT_DB_PATH = "sqlite:////app/data/okdesk_bot.db"
+else:
+    # Локальный запуск
+    DEFAULT_DB_PATH = "sqlite:///data/okdesk_bot.db"
+
+DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DB_PATH)
 
 # Server Configuration
 HOST = os.getenv("HOST", "0.0.0.0")  # Слушаем на всех интерфейсах
