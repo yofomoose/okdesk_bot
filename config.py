@@ -17,7 +17,7 @@ WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/okdesk-webhook")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
 # Database Configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///okdesk_bot.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/data/okdesk_bot.db")
 
 # Server Configuration
 HOST = os.getenv("HOST", "0.0.0.0")  # Слушаем на всех интерфейсах
