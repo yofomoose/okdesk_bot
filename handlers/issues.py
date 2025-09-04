@@ -8,7 +8,9 @@ from services.okdesk_api import OkdeskAPI
 from models.database import SessionLocal, Issue
 from utils.helpers import create_issue_title
 import config
+import logging
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 def is_user_registered(user) -> bool:
@@ -133,6 +135,11 @@ async def process_issue_description(message: Message, state: FSMContext):
         "inn_company": user.inn_company,
         "company_id": user.company_id
     }
+    
+    # Если у пользователя есть контакт в Okdesk, привязываем его к заявке
+    if user.okdesk_contact_id:
+        user_data["contact_id"] = user.okdesk_contact_id
+        logger.info(f"Привязываем контакт к заявке: contact_id = {user.okdesk_contact_id}")
     
     # Создаем заявку через API Okdesk
     okdesk_api = OkdeskAPI()
@@ -314,11 +321,13 @@ async def process_comment(message: Message, state: FSMContext):
         # Добавляем комментарий через API Okdesk
         okdesk_api = OkdeskAPI()
         try:
-            # Всегда используем системного пользователя как автора,
-            # но указываем имя реального автора в тексте комментария
+            # Для физических лиц используем системного пользователя с указанием имени клиента
+            # Комментарий через Telegram бот с указанием автора
+            formatted_comment = f"💬 **{user.full_name}** (через Telegram):\n\n{comment_text}"
+            
             response = await okdesk_api.add_comment(
-                issue.okdesk_issue_id, 
-                comment_text, 
+                issue_id=issue.okdesk_issue_id,
+                content=formatted_comment,
                 author_name=user.full_name
             )
             
@@ -333,7 +342,9 @@ async def process_comment(message: Message, state: FSMContext):
                 
                 await message.answer(
                     f"✅ Комментарий добавлен к заявке #{issue.issue_number}\n\n"
-                    f"💬 Ваш комментарий: {comment_text}"
+                    f"💬 Ваш комментарий: {comment_text}\n\n"
+                    f"📝 Также вы можете комментировать напрямую через веб-портал:\n"
+                    f"🌐 https://yapomogu55.okdesk.ru"
                 )
             else:
                 await message.answer("❌ Ошибка при добавлении комментария")

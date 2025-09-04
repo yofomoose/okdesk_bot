@@ -66,6 +66,36 @@ class UserService:
             return user
         finally:
             db.close()
+    
+    @staticmethod
+    def update_user_auth_code(user_id: int, auth_code: str) -> Optional[User]:
+        """Обновить код авторизации пользователя"""
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                user.contact_auth_code = auth_code
+                db.commit()
+                db.refresh(user)
+            return user
+        finally:
+            db.close()
+    
+    @staticmethod
+    def update_user_contact_info(user_id: int, contact_id: int, auth_code: str = None) -> Optional[User]:
+        """Обновить информацию о контакте пользователя"""
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                user.okdesk_contact_id = contact_id
+                if auth_code:
+                    user.contact_auth_code = auth_code
+                db.commit()
+                db.refresh(user)
+            return user
+        finally:
+            db.close()
 
 class IssueService:
     """Сервис для работы с заявками"""

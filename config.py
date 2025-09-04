@@ -10,6 +10,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 # Okdesk API Configuration
 OKDESK_API_URL = os.getenv("OKDESK_API_URL")
 OKDESK_API_TOKEN = os.getenv("OKDESK_API_TOKEN")
+OKDESK_SYSTEM_USER_ID = int(os.getenv("OKDESK_SYSTEM_USER_ID", "5"))  # ID системного пользователя
 
 # Webhook Configuration
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")

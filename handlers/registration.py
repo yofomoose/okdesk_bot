@@ -142,7 +142,20 @@ async def process_phone(message: Message, state: FSMContext):
                     await okdesk_api.close()
                     
                     if contact_response and 'id' in contact_response:
-                        contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_response['id']})"
+                        # Сохраняем ID контакта и код авторизации
+                        contact_id = contact_response['id']
+                        auth_code = contact_response.get('authentication_code')
+                        
+                        UserService.update_user_contact_info(
+                            user_id=updated_user.id,
+                            contact_id=contact_id,
+                            auth_code=auth_code
+                        )
+                        
+                        if auth_code:
+                            contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})\n🔐 Код авторизации: {auth_code}"
+                        else:
+                            contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})"
                     else:
                         contact_info = "\n⚠️ Контакт не удалось создать в Okdesk"
                         
