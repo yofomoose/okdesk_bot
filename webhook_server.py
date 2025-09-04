@@ -51,6 +51,9 @@ async def webhook_handler(request: Request):
         
         # Определяем тип события
         event = data.get("event", "unknown")
+        if isinstance(event, dict):
+            event = event.get("event_type", "unknown")
+        
         event_data = data.get("data", data)
         
         print(f"📊 Event: {event}")
@@ -60,8 +63,8 @@ async def webhook_handler(request: Request):
                 await handle_issue_created(event_data)
             elif event == "issue.updated":
                 await handle_issue_updated(event_data)
-            elif event == "comment.created":
-                await handle_comment_created(event_data)
+            elif event == "comment.created" or event == "new_comment":
+                await handle_comment_created(data)
             elif event == "issue.status_changed":
                 await handle_status_changed(event_data)
             else:
@@ -121,27 +124,29 @@ async def handle_comment_created(data: Dict[str, Any]):
     """Обработка создания комментария"""
     print(f"🔍 Полные данные комментария: {json.dumps(data, indent=2, ensure_ascii=False)}")
     
-    # Пробуем разные структуры данных
-    # Вариант 1: issue и comment как отдельные объекты
+    # Извлекаем данные из структуры webhook
+    event_data = data.get("event", data)
     issue_data = data.get("issue", {})
-    comment_data = data.get("comment", {})
+    comment_data = event_data.get("comment", {})
+    author_data = event_data.get("author", {})
     
-    # Вариант 2: все данные в корне
-    if not issue_data:
-        issue_data = data.get("issue", data)
-    if not comment_data:
-        comment_data = data
-    
+    # Получаем ID и содержимое
     issue_id = issue_data.get("id")
     comment_id = comment_data.get("id")
     content = comment_data.get("content")
-    author = comment_data.get("author", {})
+    
+    # Формируем имя автора
+    author_name = "Неизвестен"
+    if author_data:
+        first_name = author_data.get("first_name", "")
+        last_name = author_data.get("last_name", "")
+        author_name = f"{first_name} {last_name}".strip()
     
     print(f"📝 Получен комментарий:")
     print(f"   🎫 Заявка ID: {issue_id}")
     print(f"   💬 Комментарий ID: {comment_id}")
     print(f"   📄 Содержимое: {content}")
-    print(f"   👤 Автор: {author.get('name', 'Неизвестен')}")
+    print(f"   👤 Автор: {author_name}")
     
     if not all([issue_id, comment_id, content]):
         print("❌ Недостаточно данных для обработки комментария")
@@ -156,8 +161,8 @@ async def handle_comment_created(data: Dict[str, Any]):
     print(f"✅ Заявка найдена в БД: {issue.title}")
     
     # Проверяем, не наш ли это комментарий (чтобы избежать дублирования)
-    existing_comment = CommentService.get_issue_comments(issue.id)
-    for comment in existing_comment:
+    existing_comments = CommentService.get_issue_comments(issue.id)
+    for comment in existing_comments:
         if comment.okdesk_comment_id == comment_id:
             print(f"⚠️ Комментарий {comment_id} уже существует")
             return
@@ -174,7 +179,7 @@ async def handle_comment_created(data: Dict[str, Any]):
     print(f"✅ Комментарий добавлен в базу данных")
     
     # Уведомляем пользователя о новом комментарии
-    await notify_user_new_comment(issue, content, author)
+    await notify_user_new_comment(issue, content, author_data)
     print(f"✅ Пользователь уведомлен о новом комментарии")
     
     print(f"New comment from Okdesk: {comment_id}")
