@@ -119,7 +119,7 @@ async def process_phone(message: Message, state: FSMContext):
                     okdesk_api = OkdeskAPI()
                     name_parts = updated_user.full_name.split(' ', 1)
                     first_name = name_parts[0] if name_parts else updated_user.full_name
-                    last_name = name_parts[1] if len(name_parts) > 1 else ""
+                    last_name = name_parts[1] if len(name_parts) > 1 else "Клиент"
                     
                     contact_response = await okdesk_api.create_contact(
                         first_name=first_name,
@@ -196,7 +196,7 @@ async def process_inn(message: Message, state: FSMContext):
                 try:
                     name_parts = data.get("full_name", "").split(' ', 1)
                     first_name = name_parts[0] if name_parts else data.get("full_name", "")
-                    last_name = name_parts[1] if len(name_parts) > 1 else ""
+                    last_name = name_parts[1] if len(name_parts) > 1 else "Клиент"
                     
                     contact_response = await okdesk_api.create_contact(
                         first_name=first_name,
@@ -241,7 +241,7 @@ async def process_inn(message: Message, state: FSMContext):
                 try:
                     name_parts = data.get("full_name", "").split(' ', 1)
                     first_name = name_parts[0] if name_parts else data.get("full_name", "")
-                    last_name = name_parts[1] if len(name_parts) > 1 else ""
+                    last_name = name_parts[1] if len(name_parts) > 1 else "Клиент"
                     
                     contact_response = await okdesk_api.create_contact(
                         first_name=first_name,
