@@ -9,12 +9,15 @@ from models.database import create_tables
 from services.okdesk_api import OkdeskAPI
 import config
 
-# Инициализируем базу данных при запуске (используем ту же функцию, что и бот)
+# Инициализируем базу данных при запуске (подключаемся к общей базе)
 try:
-    create_tables()
-    print("✅ База данных подключена")
+    if create_tables():
+        print("✅ Webhook сервер подключен к общей базе данных")
+    else:
+        print("⚠️ Проблемы с базой данных, но продолжаем работу")
 except Exception as e:
-    print(f"⚠️ Ошибка подключения к базе данных: {e}")
+    print(f"❌ Критическая ошибка базы данных: {e}")
+    # Не останавливаем сервер, продолжаем работу
 
 app = FastAPI()
 

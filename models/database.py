@@ -7,8 +7,8 @@ import config
 # Создаем базовый класс для моделей
 Base = declarative_base()
 
-# Создаем движок базы данных
-engine = create_engine(config.DATABASE_URL, echo=True)
+# Создаем движок базы данных (без echo для production)
+engine = create_engine(config.DATABASE_URL, echo=False)
 
 # Создаем фабрику сессий
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -69,9 +69,20 @@ class Comment(Base):
     
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# Создаем все таблицы
+# Создаем все таблицы ТОЛЬКО если их нет
 def create_tables():
-    Base.metadata.create_all(bind=engine)
+    """
+    Создает таблицы в базе данных, если они не существуют.
+    Использует checkfirst=True для безопасного создания.
+    """
+    try:
+        # checkfirst=True означает: создать таблицы только если их нет
+        Base.metadata.create_all(bind=engine, checkfirst=True)
+        print("📊 Таблицы проверены/созданы в базе данных")
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка при создании таблиц: {e}")
+        return False
 
 # Функция для получения сессии базы данных
 def get_db():
