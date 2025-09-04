@@ -138,13 +138,21 @@ class OkdeskAPI:
             'public': is_public
         }
         
+        # Если author_id не указан, получаем ID текущего пользователя API
+        if not author_id:
+            current_user = await self.get_current_user()
+            if current_user and current_user.get('id'):
+                author_id = current_user['id']
+            else:
+                # Fallback: используем фиксированный ID или получаем из профиля
+                author_id = 1  # ID пользователя API по умолчанию
+        
+        # Всегда указываем author_id (обязательное поле)
+        data['author_id'] = author_id
+        
         # Если указано имя автора, добавляем его в текст комментария
-        if author_name and not author_id:
-            # Добавляем имя автора в начало комментария
+        if author_name:
             data['content'] = f"**От {author_name}:**\n\n{content}"
-        elif author_id:
-            # Если есть author_id, используем его
-            data['author_id'] = author_id
         
         response = await self._make_request('POST', f'/issues/{issue_id}/comments', data)
         return response if response else {}
@@ -152,16 +160,29 @@ class OkdeskAPI:
     async def get_employees(self, limit: int = 50) -> List[Dict]:
         """Получить список сотрудников"""
         try:
-            endpoint = f"/employees?limit={limit}"
-            response = await self._make_request('GET', endpoint)
+            # Пробуем разные endpoints для получения сотрудников
+            endpoints = [
+                f"/users?limit={limit}",
+                f"/staff?limit={limit}",
+                f"/employees?limit={limit}"
+            ]
             
-            if not response:
-                return []
+            for endpoint in endpoints:
+                try:
+                    response = await self._make_request('GET', endpoint)
+                    
+                    if response:
+                        if isinstance(response, list):
+                            return response
+                        elif isinstance(response, dict) and 'data' in response:
+                            return response['data']
+                        elif isinstance(response, dict) and 'users' in response:
+                            return response['users']
+                except Exception as e:
+                    logger.warning(f"Endpoint {endpoint} недоступен: {e}")
+                    continue
             
-            if isinstance(response, list):
-                return response
-            elif isinstance(response, dict) and 'data' in response:
-                return response['data']
+            logger.warning("Не удалось получить список сотрудников ни через один endpoint")
             return []
         except Exception as e:
             logger.error(f"Ошибка получения сотрудников: {e}")
