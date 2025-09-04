@@ -103,6 +103,15 @@ class IssueService:
             db.close()
     
     @staticmethod
+    def get_all_issues() -> List[Issue]:
+        """Получить все заявки (для отладки)"""
+        db = SessionLocal()
+        try:
+            return db.query(Issue).all()
+        finally:
+            db.close()
+    
+    @staticmethod
     def get_issue_by_okdesk_id(okdesk_issue_id: int) -> Optional[Issue]:
         """Получить заявку по ID в Okdesk"""
         db = SessionLocal()

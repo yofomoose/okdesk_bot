@@ -5,12 +5,17 @@ import json
 import hmac
 import hashlib
 from database.crud import IssueService, CommentService, UserService
-from models.database import create_tables
+from models.database import create_tables, engine, Base
 from services.okdesk_api import OkdeskAPI
 import config
 
-# Инициализируем базу данных при запуске
-create_tables()
+# Инициализируем базу данных при запуске (создаем таблицы только если они не существуют)
+try:
+    # Создаем таблицы только если их нет (не удаляя существующие данные)
+    Base.metadata.create_all(bind=engine, checkfirst=True)
+    print("✅ База данных подключена")
+except Exception as e:
+    print(f"⚠️ Ошибка подключения к базе данных: {e}")
 
 app = FastAPI()
 
@@ -160,6 +165,16 @@ async def handle_comment_created(data: Dict[str, Any]):
     issue = IssueService.get_issue_by_okdesk_id(issue_id)
     if not issue:
         print(f"❌ Заявка {issue_id} не найдена в базе данных")
+        
+        # Отладочная информация
+        print(f"🔍 Ищем в базе данных по пути: {config.DATABASE_URL}")
+        all_issues = IssueService.get_all_issues()
+        print(f"📊 Всего заявок в БД: {len(all_issues)}")
+        if all_issues:
+            print("📋 Последние заявки в БД:")
+            for i in all_issues[-3:]:  # Показываем последние 3
+                print(f"   - ID: {i.okdesk_issue_id}, Title: {i.title}")
+        
         return
     
     print(f"✅ Заявка найдена в БД: {issue.title}")
