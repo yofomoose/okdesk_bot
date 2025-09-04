@@ -5,8 +5,12 @@ import json
 import hmac
 import hashlib
 from database.crud import IssueService, CommentService, UserService
+from models.database import create_tables
 from services.okdesk_api import OkdeskAPI
 import config
+
+# Инициализируем базу данных при запуске
+create_tables()
 
 app = FastAPI()
 
