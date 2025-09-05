@@ -347,15 +347,49 @@ async def process_comment(message: Message, state: FSMContext):
                 )
                 comment_source = "от вашего имени"
             else:
-                # Для пользователей без contact_id используем системного пользователя с указанием имени клиента
-                formatted_comment = f"💬 **{user.full_name or 'Клиент'}** (через Telegram):\n\n{comment_text}"
+                # Для пользователей без contact_id - создаем контакт автоматически
+                print(f"🔍 У пользователя {user.telegram_id} нет контакта, создаем автоматически...")
                 
-                response = await okdesk_api.add_comment(
-                    issue_id=issue.okdesk_issue_id,
-                    content=formatted_comment,
-                    author_id=config.OKDESK_SYSTEM_USER_ID
+                name_parts = user.full_name.split(' ', 1) if user.full_name else ['Клиент', '']
+                first_name = name_parts[0]
+                last_name = name_parts[1] if len(name_parts) > 1 else "Клиент"
+                
+                contact_response = await okdesk_api.create_contact(
+                    first_name=first_name,
+                    last_name=last_name,
+                    phone=user.phone,
+                    comment=f"Создан автоматически при добавлении комментария (Telegram ID: {user.telegram_id})"
                 )
-                comment_source = "через системного пользователя"
+                
+                if contact_response and 'id' in contact_response:
+                    contact_id = contact_response['id']
+                    # Сохраняем ID контакта в базе данных
+                    UserService.update_user_contact_info(
+                        user_id=user.id,
+                        okdesk_contact_id=contact_id,
+                        contact_auth_code=contact_response.get('authentication_code')
+                    )
+                    
+                    # Создаем комментарий от имени нового контакта
+                    response = await okdesk_api.add_comment(
+                        issue_id=issue.okdesk_issue_id,
+                        content=f"{comment_text}\n\n(Отправлено через Telegram бот)",
+                        author_id=contact_id,
+                        author_type="contact"
+                    )
+                    comment_source = "от вашего имени (новый контакт создан)"
+                    print(f"✅ Создан новый контакт с ID {contact_id} для пользователя {user.telegram_id}")
+                else:
+                    # Fallback: используем системного пользователя
+                    print(f"❌ Не удалось создать контакт, используем системного пользователя")
+                    formatted_comment = f"💬 **{user.full_name or 'Клиент'}** (через Telegram):\n\n{comment_text}"
+                    
+                    response = await okdesk_api.add_comment(
+                        issue_id=issue.okdesk_issue_id,
+                        content=formatted_comment,
+                        author_id=config.OKDESK_SYSTEM_USER_ID
+                    )
+                    comment_source = "через системного пользователя"
             
             if response and response.get("id"):
                 # Сохраняем комментарий в нашей БД
