@@ -250,6 +250,7 @@ class OkdeskAPI:
             
             logger.info(f"Создаем комментарий от системного пользователя (ID: {config.OKDESK_SYSTEM_USER_ID})")
         
+        logger.info(f"Данные для создания комментария: {data}")
         response = await self._make_request('POST', f'/api/v1/issues/{issue_id}/comments', data)
         
         if response and 'id' in response:
