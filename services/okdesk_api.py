@@ -263,7 +263,7 @@ class OkdeskAPI:
             return []
     
     async def search_contact_by_phone(self, phone: str) -> Optional[Dict]:
-        """Найти контакт по номеру телефона"""
+        """Найти контакт по номеру телефона (старый метод, неэффективный)"""
         try:
             contacts = await self.get_contacts(100)  # Получаем больше контактов для поиска
             for contact in contacts:
@@ -276,6 +276,24 @@ class OkdeskAPI:
             return None
         except Exception as e:
             logger.error(f"Ошибка поиска контакта: {e}")
+            return None
+            
+    async def find_contact_by_phone(self, phone: str) -> Optional[Dict]:
+        """Найти контакт по номеру телефона через API (рекомендуемый метод)"""
+        try:
+            # Используем API endpoint /contacts/search с параметром phone
+            endpoint = f"/contacts/search?phone={phone}"
+            response = await self._make_request('GET', endpoint)
+            
+            if response and isinstance(response, list) and len(response) > 0:
+                contact = response[0]  # первый найденный контакт
+                logger.info(f"✅ Найден контакт через API: {contact.get('name', 'Без имени')} (ID: {contact.get('id')})")
+                return contact
+            else:
+                logger.info(f"❌ Контакт с телефоном {phone} не найден через API")
+                return None
+        except Exception as e:
+            logger.error(f"Ошибка поиска контакта через API: {e}")
             return None
     
     async def create_contact(self, first_name: str, last_name: str, **kwargs) -> Dict:

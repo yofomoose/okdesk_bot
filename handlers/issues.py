@@ -418,7 +418,7 @@ async def process_comment(message: Message, state: FSMContext):
                         error_msg += f"\n🔍 Детали: {error_details}"
                         logger.error(f"Детали ошибки: {error_details}")
                     if "author" in str(response).lower():
-                        error_msg += f"\n👤 Проблема с автором (ID: {user.okdesk_contact_id or config.OKDESK_SYSTEM_USER_ID})"
+                        error_msg += f"\n👤 Проблема с автором (ID: {user.okdesk_contact_id})"
                         logger.error(f"Проблема с автором комментария")
                 
                 await message.answer(error_msg)
