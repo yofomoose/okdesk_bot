@@ -343,16 +343,17 @@ async def process_comment(message: Message, state: FSMContext):
                 comment_source = "от вашего имени"
             else:
                 # Для пользователей без contact_id используем системного пользователя с указанием имени клиента
-                formatted_comment = f"💬 **{user.full_name}** (через Telegram):\n\n{comment_text}"
+                formatted_comment = f"💬 **{user.full_name or 'Клиент'}** (через Telegram):\n\n{comment_text}"
                 
                 response = await okdesk_api.add_comment(
                     issue_id=issue.okdesk_issue_id,
                     content=formatted_comment,
-                    author_id=config.OKDESK_SYSTEM_USER_ID
+                    author_id=config.OKDESK_SYSTEM_USER_ID,
+                    author_type="employee"  # Явно указываем тип автора
                 )
                 comment_source = "через системного пользователя"
             
-            if response:
+            if response and response.get("id"):
                 # Сохраняем комментарий в нашей БД
                 CommentService.add_comment(
                     issue_id=issue_id,
@@ -369,7 +370,15 @@ async def process_comment(message: Message, state: FSMContext):
                     f"🌐 https://yapomogu55.okdesk.ru"
                 )
             else:
-                await message.answer("❌ Ошибка при добавлении комментария")
+                error_msg = f"❌ Ошибка при добавлении комментария к заявке #{issue.issue_number}"
+                if isinstance(response, dict):
+                    error_details = response.get("error") or response.get("errors")
+                    if error_details:
+                        error_msg += f"\n🔍 Детали: {error_details}"
+                    if "author" in str(response).lower():
+                        error_msg += f"\n👤 Проблема с автором (ID: {user.okdesk_contact_id or config.OKDESK_SYSTEM_USER_ID})"
+                
+                await message.answer(error_msg)
         finally:
             await okdesk_api.close()
     finally:
