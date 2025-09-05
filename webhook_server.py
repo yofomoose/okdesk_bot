@@ -255,6 +255,7 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
 async def notify_user_new_comment(issue, content: str, author: Dict):
     """Уведомление пользователя о новом комментарии"""
     from bot import bot  # Импортируем бота
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     
     author_name = author.get("name", "Сотрудник")
     
@@ -266,10 +267,18 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
         f"🔗 Открыть заявку: {issue.okdesk_url}"
     )
     
+    # Создаем клавиатуру с кнопками быстрого доступа
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Ответить", callback_data=f"add_comment_{issue.issue_number}")],
+        [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
+        [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")]
+    ])
+    
     try:
         await bot.send_message(
             chat_id=issue.telegram_user_id,
-            text=message
+            text=message,
+            reply_markup=keyboard
         )
     except Exception as e:
         print(f"Failed to send comment notification: {e}")

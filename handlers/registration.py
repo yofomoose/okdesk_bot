@@ -163,12 +163,20 @@ async def process_phone(message: Message, state: FSMContext):
                     print(f"Ошибка создания контакта в Okdesk: {e}")
                     contact_info = "\n⚠️ Ошибка при создании контакта в Okdesk"
                 
+                # Создаем клавиатуру с кнопками быстрого доступа
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
+                    [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
+                    [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
+                ])
+                
                 await message.answer(
                     "✅ Регистрация завершена!\n\n"
                     f"👤 ФИО: {updated_user.full_name}\n"
                     f"📱 Телефон: {updated_user.phone}"
                     f"{contact_info}\n\n"
-                    "Теперь вы можете создавать заявки. Используйте /menu для доступа к функциям."
+                    "Теперь вы можете создавать заявки:",
+                    reply_markup=keyboard
                 )
                 await state.clear()  # Очищаем состояние только для физических лиц
             else:
@@ -262,6 +270,13 @@ async def process_inn(message: Message, state: FSMContext):
                         print(f"Ошибка создания контакта в Okdesk: {e}")
                         contact_info = "\n⚠️ Ошибка при создании контакта в Okdesk"
                     
+                    # Создаем клавиатуру с кнопками быстрого доступа
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
+                        [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
+                        [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
+                    ])
+                    
                     await message.answer(
                         "✅ Регистрация юридического лица завершена!\n\n"
                         f"👤 ФИО: {data.get('full_name', 'Не указано')}\n"
@@ -269,8 +284,8 @@ async def process_inn(message: Message, state: FSMContext):
                         f"🏢 Компания: {company.get('name')}\n"
                         f"🔢 ИНН: {inn}"
                         f"{contact_info}\n\n"
-                        "Теперь вы можете создавать заявки от имени компании.\n"
-                        "Используйте /menu для доступа к функциям."
+                        "Теперь вы можете создавать заявки от имени компании:",
+                        reply_markup=keyboard
                     )
                 else:
                     await message.answer("❌ Ошибка при сохранении данных. Попробуйте снова.")
@@ -327,13 +342,21 @@ async def process_inn(message: Message, state: FSMContext):
                         print(f"Ошибка создания контакта в Okdesk: {e}")
                         contact_info = "\n⚠️ Ошибка при создании контакта в Okdesk"
                     
+                    # Создаем клавиатуру с кнопками быстрого доступа
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
+                        [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
+                        [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
+                    ])
+                    
                     await message.answer(
                         "✅ Регистрация завершена!\n\n"
                         f"👤 ФИО: {data.get('full_name', 'Не указано')}\n"
                         f"📱 Телефон: {data.get('phone', 'Не указан')}\n"
                         f"🔢 ИНН: {inn}"
                         f"{contact_info}\n\n"
-                        "Используйте /menu для доступа к функциям."
+                        "Теперь вы можете создавать заявки:",
+                        reply_markup=keyboard
                     )
                 else:
                     await message.answer("❌ Ошибка при сохранении данных. Попробуйте снова.")

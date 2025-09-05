@@ -444,3 +444,30 @@ async def show_profile(callback: CallbackQuery):
 async def back_to_menu(callback: CallbackQuery):
     """Возврат в главное меню"""
     await cmd_menu(callback.message)
+
+@router.callback_query(F.data.startswith("add_comment_"))
+async def start_add_comment(callback: CallbackQuery, state: FSMContext):
+    """Начать добавление комментария к заявке"""
+    issue_number = callback.data.split("_")[-1]
+    
+    # Находим заявку по номеру
+    issue = IssueService.get_issue_by_number(int(issue_number))
+    if not issue:
+        await callback.answer("❌ Заявка не найдена")
+        return
+    
+    # Проверяем, что пользователь является автором заявки
+    if issue.telegram_user_id != callback.from_user.id:
+        await callback.answer("❌ Вы не можете комментировать чужую заявку")
+        return
+    
+    await callback.message.edit_text(
+        f"💬 Добавление комментария к заявке #{issue.issue_number}\n\n"
+        f"📝 {issue.title}\n\n"
+        f"Напишите ваш комментарий:"
+    )
+    
+    # Сохраняем ID заявки в состоянии
+    await state.update_data(issue_id=issue.id)
+    await state.set_state(IssueStates.waiting_for_comment)
+    await callback.answer()
