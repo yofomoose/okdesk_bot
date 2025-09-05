@@ -337,8 +337,12 @@ async def process_comment(message: Message, state: FSMContext):
         # Добавляем комментарий через API Okdesk
         okdesk_api = OkdeskAPI()
         try:
+            logger.info(f"🔍 Пользователь {user.telegram_id} добавляет комментарий к заявке {issue.okdesk_issue_id}")
+            logger.info(f"📋 okdesk_contact_id: {user.okdesk_contact_id}")
+            
             # Если у пользователя есть contact_id, создаем комментарий от его имени
             if user.okdesk_contact_id:
+                logger.info(f"✅ Используем существующий контакт ID: {user.okdesk_contact_id}")
                 response = await okdesk_api.add_comment(
                     issue_id=issue.okdesk_issue_id,
                     content=f"{comment_text}\n\n(Отправлено через Telegram бот)",
@@ -348,12 +352,14 @@ async def process_comment(message: Message, state: FSMContext):
                 comment_source = "от вашего имени"
             else:
                 # Для пользователей без contact_id - создаем контакт автоматически
-                print(f"🔍 У пользователя {user.telegram_id} нет контакта, создаем автоматически...")
+                logger.info(f"🔍 У пользователя {user.telegram_id} нет контакта, создаем автоматически...")
+                logger.info(f"📞 Телефон: {user.phone}, Имя: {user.full_name}")
                 
                 name_parts = user.full_name.split(' ', 1) if user.full_name else ['Клиент', '']
                 first_name = name_parts[0]
                 last_name = name_parts[1] if len(name_parts) > 1 else "Клиент"
                 
+                logger.info(f"👤 Создаем контакт: {first_name} {last_name}")
                 contact_response = await okdesk_api.create_contact(
                     first_name=first_name,
                     last_name=last_name,
@@ -363,6 +369,7 @@ async def process_comment(message: Message, state: FSMContext):
                 
                 if contact_response and 'id' in contact_response:
                     contact_id = contact_response['id']
+                    logger.info(f"✅ Контакт создан с ID: {contact_id}")
                     # Сохраняем ID контакта в базе данных
                     UserService.update_user_contact_info(
                         user_id=user.id,
@@ -371,6 +378,7 @@ async def process_comment(message: Message, state: FSMContext):
                     )
                     
                     # Создаем комментарий от имени нового контакта
+                    logger.info(f"💬 Создаем комментарий от нового контакта ID: {contact_id}")
                     response = await okdesk_api.add_comment(
                         issue_id=issue.okdesk_issue_id,
                         content=f"{comment_text}\n\n(Отправлено через Telegram бот)",
@@ -378,10 +386,12 @@ async def process_comment(message: Message, state: FSMContext):
                         author_type="contact"
                     )
                     comment_source = "от вашего имени (новый контакт создан)"
-                    print(f"✅ Создан новый контакт с ID {contact_id} для пользователя {user.telegram_id}")
+                    logger.info(f"✅ Создан новый контакт с ID {contact_id} для пользователя {user.telegram_id}")
                 else:
+                    logger.error(f"❌ Не удалось создать контакт для пользователя {user.telegram_id}")
+                    logger.error(f"Ответ API: {contact_response}")
                     # Fallback: используем системного пользователя
-                    print(f"❌ Не удалось создать контакт, используем системного пользователя")
+                    logger.warning(f"⚠️ Используем системного пользователя как fallback")
                     if not config.OKDESK_SYSTEM_USER_ID:
                         await message.answer("❌ Ошибка: системный пользователь не настроен")
                         await state.clear()
@@ -398,6 +408,8 @@ async def process_comment(message: Message, state: FSMContext):
                     comment_source = "через системного пользователя"
             
             if response and response.get("id"):
+                logger.info(f"✅ Комментарий успешно добавлен к заявке #{issue.issue_number}")
+                logger.info(f"📝 ID комментария: {response.get('id')}")
                 # Сохраняем комментарий в нашей БД
                 CommentService.add_comment(
                     issue_id=issue_id,
@@ -414,13 +426,17 @@ async def process_comment(message: Message, state: FSMContext):
                     f"🌐 https://yapomogu55.okdesk.ru"
                 )
             else:
+                logger.error(f"❌ Ошибка при добавлении комментария к заявке #{issue.issue_number}")
+                logger.error(f"Ответ API: {response}")
                 error_msg = f"❌ Ошибка при добавлении комментария к заявке #{issue.issue_number}"
                 if isinstance(response, dict):
                     error_details = response.get("error") or response.get("errors")
                     if error_details:
                         error_msg += f"\n🔍 Детали: {error_details}"
+                        logger.error(f"Детали ошибки: {error_details}")
                     if "author" in str(response).lower():
                         error_msg += f"\n👤 Проблема с автором (ID: {user.okdesk_contact_id or config.OKDESK_SYSTEM_USER_ID})"
+                        logger.error(f"Проблема с автором комментария")
                 
                 await message.answer(error_msg)
         finally:

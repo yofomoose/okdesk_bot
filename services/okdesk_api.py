@@ -163,33 +163,27 @@ class OkdeskAPI:
         # Основная логика создания комментария
         data = {
             'content': content,
-            'public': is_public  # Всегда публичные для клиентов
+            'public': is_public
         }
         
-        # Если указан контакт как автор - пытаемся создать от его имени
-        if author_type == "contact" and author_id:
-            data['author_id'] = author_id
-            data['author_type'] = "contact"
-            logger.info(f"Создаем комментарий от контакта (ID: {author_id})")
-        else:
-            # Иначе создаем от системного пользователя с форматированием имени
-            if not config.OKDESK_SYSTEM_USER_ID:
-                logger.error("❌ Системный пользователь не настроен (OKDESK_SYSTEM_USER_ID)")
-                return {}
-            
-            data['author_id'] = config.OKDESK_SYSTEM_USER_ID
-            data['author_type'] = "employee"
-            logger.info(f"Устанавливаем author_type=employee для системного пользователя")
-            
-            # Форматируем комментарий с указанием имени клиента
-            if author_name:
-                data['content'] = f"💬 **{author_name}** (через Telegram бот):\n\n{content}"
-            
-            logger.info(f"Создаем комментарий от системного пользователя (ID: {config.OKDESK_SYSTEM_USER_ID})")
+        logger.info(f"=== СОЗДАНИЕ КОММЕНТАРИЯ ===")
+        logger.info(f"issue_id: {issue_id}")
+        logger.info(f"author_id: {author_id}")
+        logger.info(f"author_type: {author_type}")
+        logger.info(f"content: {content[:50]}...")
         
-        # Фильтруем None значения
-        if data:
-            data = {k: v for k, v in data.items() if v is not None}
+        # author_id и author_type обязательны!
+        if author_id and author_type:
+            data['author_id'] = author_id
+            data['author_type'] = author_type
+        else:
+            logger.error(f"❌ ОШИБКА: author_id={author_id}, author_type={author_type}")
+            # Если нет author_id, пытаемся использовать запасной вариант
+            if not author_id:
+                # Используем системного пользователя как fallback
+                data['author_id'] = 5  # ID Manager из ваших логов
+                data['author_type'] = 'employee'
+                logger.warning(f"⚠️ Используем fallback: author_id=5, author_type=employee")
         
         logger.info(f"Финальные данные для отправки: {data}")
         response = await self._make_request('POST', f'/issues/{issue_id}/comments', data)
