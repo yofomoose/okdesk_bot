@@ -40,19 +40,31 @@ class OkdeskAPI:
             }
         )
     
-    async def _make_request(self, method: str, endpoint: str, data: Dict = None, headers: Dict = None) -> Dict:
+    async def _make_request(self, method: str, endpoint: str, data: Dict = None, headers: Dict = None, params: Dict = None) -> Dict:
         """Выполнить HTTP запрос к API"""
         if not self.session:
             self.session = await self._get_session()
             
-        # Поскольку в base_url уже есть /api/v1, просто добавляем endpoint
-        url = f"{self.base_url}{endpoint}"
-        
-        # Добавляем API токен в параметры
-        if '?' in endpoint:
-            url += f"&api_token={self.token}"
+        # Если endpoint начинается с /api/v1, используем base_url без /api/v1
+        if endpoint.startswith('/api/v1'):
+            # base_url уже содержит /api/v1, поэтому берем только домен
+            base = self.base_url.replace('/api/v1', '')
+            url = f"{base}{endpoint}"
         else:
-            url += f"?api_token={self.token}"
+            # Для старых endpoints используем base_url как есть
+            url = f"{self.base_url}{endpoint}"
+        
+        # Собираем параметры запроса
+        query_params = {'api_token': self.token}
+        if params:
+            query_params.update(params)
+        
+        # Формируем URL с параметрами
+        param_string = '&'.join([f"{k}={v}" for k, v in query_params.items()])
+        if '?' in url:
+            url += f"&{param_string}"
+        else:
+            url += f"?{param_string}"
             
         logger.info(f"{method} {url}")
         if headers:
@@ -63,6 +75,7 @@ class OkdeskAPI:
                 response_text = await response.text()
                 logger.info(f"Response status: {response.status}")
                 logger.info(f"Response: {response_text[:500]}")
+                logger.info(f"Request data sent: {data}")  # Отладка отправляемых данных
                 
                 if response.status in [200, 201]:
                     try:
@@ -80,9 +93,7 @@ class OkdeskAPI:
         """Получить список заявок"""
         try:
             # Используем корректный endpoint для заявок
-            endpoint = f"/issues?limit={limit}"
-            
-            response = await self._make_request('GET', endpoint)
+            response = await self._make_request('GET', '/issues', params={'limit': limit})
             
             if not response:
                 return []
@@ -364,19 +375,26 @@ class OkdeskAPI:
     async def create_company(self, name: str, inn: str = None, **kwargs) -> Dict:
         """Создать новую компанию"""
         data = {
-            'name': name
+            'name': name,
         }
         
-        # Добавляем ИНН только если он задан (для юрлиц)
+        # Добавляем ИНН в дополнительные атрибуты если он указан
         if inn:
-            data['inn_company'] = inn
+            data['custom_parameters'] = {
+                'inn_company': inn  # Сохраняем ИНН как дополнительный атрибут
+            }
         
-        for field in ['address', 'phone', 'email', 'comment']:
+        # Добавляем другие поля если они переданы
+        for field in ['additional_name', 'address', 'phone', 'email', 'comment', 'site']:
             if field in kwargs and kwargs[field]:
                 data[field] = kwargs[field]
         
+        # CRM 1C ID для интеграции
+        if 'crm_1c_id' in kwargs:
+            data['crm_1c_id'] = kwargs['crm_1c_id']
+        
         logger.info(f"Создаем компанию с данными: {data}")
-        response = await self._make_request('POST', '/companies', data)
+        response = await self._make_request('POST', '/api/v1/companies', data)
         return response if response else {}
     
     async def update_contact(self, contact_id: int, **kwargs) -> Dict:
@@ -399,16 +417,22 @@ class OkdeskAPI:
     async def get_companies(self, limit: int = 50) -> List[Dict]:
         """Получить список компаний"""
         try:
-            endpoint = f"/companies?limit={limit}"
-            response = await self._make_request('GET', endpoint)
+            # Используем правильный endpoint согласно документации
+            response = await self._make_request(
+                'GET', 
+                '/api/v1/companies/list',
+                params={'page[size]': min(limit, 100)}  # Максимальный размер 100
+            )
             
             if not response:
                 return []
             
-            if isinstance(response, list):
+            # Согласно документации, ответ содержит массив companies
+            if isinstance(response, dict) and 'companies' in response:
+                return response['companies']
+            elif isinstance(response, list):
                 return response
-            elif isinstance(response, dict) and 'data' in response:
-                return response['data']
+            
             return []
         except Exception as e:
             logger.error(f"Ошибка получения компаний: {e}")
@@ -419,31 +443,55 @@ class OkdeskAPI:
         try:
             logger.info(f"Ищем компанию с ИНН: {inn}")
             
-            # Получаем список компаний
-            companies = await self.get_companies(100)
+            # Сначала пробуем поиск через search_string (возможно ИНН указан в названии)
+            response = await self._make_request(
+                'GET',
+                '/api/v1/companies',
+                params={'search_string': inn}
+            )
             
-            # Ищем компанию с нужным ИНН в параметрах
+            if response and 'companies' in response and response['companies']:
+                logger.info(f"Найдена компания через поиск по строке: {response['companies'][0].get('name')}")
+                return response['companies'][0]
+            
+            # Получаем список всех компаний для детального поиска
+            companies = await self.get_companies(100)
+            logger.info(f"Загружено {len(companies)} компаний для поиска")
+            
+            # Ищем компанию с нужным ИНН
             for company in companies:
-                # Проверяем разные поля где может храниться ИНН
-                if (company.get('inn') == inn or 
-                    company.get('legal_inn') == inn or
-                    company.get('tax_number') == inn):
-                    logger.info(f"Найдена компания с ИНН {inn}: {company.get('name')}")
+                logger.debug(f"Проверяем компанию: {company.get('name')} (ID: {company.get('id')})")
+                
+                # Проверяем дополнительные атрибуты (custom_parameters)
+                custom_params = company.get('custom_parameters', {})
+                if custom_params:
+                    for param_key, param_value in custom_params.items():
+                        param_key_lower = param_key.lower()
+                        param_value_str = str(param_value) if param_value else ''
+                        
+                        # Ищем поля связанные с ИНН
+                        if any(inn_field in param_key_lower for inn_field in ['inn', 'инн', 'tax', 'налог']) and param_value_str == inn:
+                            logger.info(f"Найдена компания с ИНН {inn} в доп. атрибуте '{param_key}': {company.get('name')}")
+                            return company
+                
+                # Проверяем основные поля компании
+                if (company.get('crm_1c_id') == inn or
+                    inn in str(company.get('name', '')) or
+                    inn in str(company.get('additional_name', ''))):
+                    logger.info(f"Найдена компания с ИНН {inn} в основных полях: {company.get('name')}")
                     return company
                 
-                # Также проверяем параметры компании
+                # Проверяем параметры компании (если они в другом формате)
                 parameters = company.get('parameters', [])
                 if parameters:
                     for param in parameters:
                         if isinstance(param, dict):
-                            param_name = param.get('name', '').lower()
+                            param_name = str(param.get('name', '')).lower()
                             param_value = str(param.get('value', ''))
                             
-                            # Проверяем разные варианты названий поля ИНН
-                            if any(inn_field in param_name for inn_field in ['инн', 'inn', 'ИНН']):
-                                if param_value == inn:
-                                    logger.info(f"Найдена компания с ИНН {inn}: {company.get('name')}")
-                                    return company
+                            if any(inn_field in param_name for inn_field in ['inn', 'инн', 'tax', 'налог']) and param_value == inn:
+                                logger.info(f"Найдена компания с ИНН {inn} в параметре {param_name}: {company.get('name')}")
+                                return company
             
             logger.info(f"Компания с ИНН {inn} не найдена")
             return None
