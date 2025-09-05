@@ -366,8 +366,8 @@ async def process_comment(message: Message, state: FSMContext):
                     # Сохраняем ID контакта в базе данных
                     UserService.update_user_contact_info(
                         user_id=user.id,
-                        okdesk_contact_id=contact_id,
-                        contact_auth_code=contact_response.get('authentication_code')
+                        contact_id=contact_id,
+                        auth_code=contact_response.get('authentication_code')
                     )
                     
                     # Создаем комментарий от имени нового контакта
