@@ -382,12 +382,18 @@ async def process_comment(message: Message, state: FSMContext):
                 else:
                     # Fallback: используем системного пользователя
                     print(f"❌ Не удалось создать контакт, используем системного пользователя")
+                    if not config.OKDESK_SYSTEM_USER_ID:
+                        await message.answer("❌ Ошибка: системный пользователь не настроен")
+                        await state.clear()
+                        return
+                    
                     formatted_comment = f"💬 **{user.full_name or 'Клиент'}** (через Telegram):\n\n{comment_text}"
                     
                     response = await okdesk_api.add_comment(
                         issue_id=issue.okdesk_issue_id,
                         content=formatted_comment,
-                        author_id=config.OKDESK_SYSTEM_USER_ID
+                        author_id=config.OKDESK_SYSTEM_USER_ID,
+                        author_type="employee"
                     )
                     comment_source = "через системного пользователя"
             

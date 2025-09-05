@@ -242,6 +242,10 @@ class OkdeskAPI:
             logger.info(f"Создаем комментарий от контакта (ID: {author_id})")
         else:
             # Иначе создаем от системного пользователя с форматированием имени
+            if not config.OKDESK_SYSTEM_USER_ID:
+                logger.error("❌ Системный пользователь не настроен (OKDESK_SYSTEM_USER_ID)")
+                return {}
+            
             data['author_id'] = config.OKDESK_SYSTEM_USER_ID
             data['author_type'] = "employee"
             logger.info(f"Устанавливаем author_type=employee для системного пользователя")
@@ -251,6 +255,10 @@ class OkdeskAPI:
                 data['content'] = f"💬 **{author_name}** (через Telegram бот):\n\n{content}"
             
             logger.info(f"Создаем комментарий от системного пользователя (ID: {config.OKDESK_SYSTEM_USER_ID})")
+        
+        # Фильтруем None значения
+        if data:
+            data = {k: v for k, v in data.items() if v is not None}
         
         logger.info(f"Финальные данные для отправки: {data}")
         response = await self._make_request('POST', f'/api/v1/issues/{issue_id}/comments', data)
