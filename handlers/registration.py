@@ -205,7 +205,9 @@ async def process_inn(message: Message, state: FSMContext):
     data = await state.get_data()  # Получаем ФИО и телефон из состояния
     
     try:
+        print(f"DEBUG: Поиск компании с ИНН {inn}")
         company = await okdesk_api.search_company_by_inn(inn)
+        print(f"DEBUG: Результат поиска: {company}")
         
         if company:
             # Компания найдена в системе
@@ -341,7 +343,12 @@ async def process_inn(message: Message, state: FSMContext):
         
     except Exception as e:
         print(f"Ошибка обработки ИНН: {e}")
-        await message.answer("❌ Произошла ошибка при обработке ИНН. Попробуйте снова.")
+        import traceback
+        traceback.print_exc()
+        await message.answer(
+            f"❌ Произошла ошибка при обработке ИНН: {str(e)}\n"
+            "Попробуйте снова или обратитесь к администратору."
+        )
     
     finally:
         await okdesk_api.close()

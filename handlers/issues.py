@@ -321,15 +321,25 @@ async def process_comment(message: Message, state: FSMContext):
         # Добавляем комментарий через API Okdesk
         okdesk_api = OkdeskAPI()
         try:
-            # Для физических лиц используем системного пользователя с указанием имени клиента
-            # Комментарий через Telegram бот с указанием автора
-            formatted_comment = f"💬 **{user.full_name}** (через Telegram):\n\n{comment_text}"
-            
-            response = await okdesk_api.add_comment(
-                issue_id=issue.okdesk_issue_id,
-                content=formatted_comment,
-                author_name=user.full_name
-            )
+            # Если у пользователя есть contact_id, создаем комментарий от его имени
+            if user.okdesk_contact_id:
+                response = await okdesk_api.add_comment(
+                    issue_id=issue.okdesk_issue_id,
+                    content=f"{comment_text}\n\n(Отправлено через Telegram бот)",
+                    author_id=user.okdesk_contact_id,
+                    author_type="contact"
+                )
+                comment_source = "от вашего имени"
+            else:
+                # Для пользователей без contact_id используем системного пользователя с указанием имени клиента
+                formatted_comment = f"💬 **{user.full_name}** (через Telegram):\n\n{comment_text}"
+                
+                response = await okdesk_api.add_comment(
+                    issue_id=issue.okdesk_issue_id,
+                    content=formatted_comment,
+                    author_id=config.OKDESK_SYSTEM_USER_ID
+                )
+                comment_source = "через системного пользователя"
             
             if response:
                 # Сохраняем комментарий в нашей БД
@@ -342,7 +352,8 @@ async def process_comment(message: Message, state: FSMContext):
                 
                 await message.answer(
                     f"✅ Комментарий добавлен к заявке #{issue.issue_number}\n\n"
-                    f"💬 Ваш комментарий: {comment_text}\n\n"
+                    f"💬 Ваш комментарий: {comment_text}\n"
+                    f"👤 Создан: {comment_source}\n\n"
                     f"📝 Также вы можете комментировать напрямую через веб-портал:\n"
                     f"🌐 https://yapomogu55.okdesk.ru"
                 )

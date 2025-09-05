@@ -92,12 +92,20 @@ class OkdeskAPI:
     async def get_issues(self, limit: int = 50) -> List[Dict]:
         """Получить список заявок"""
         try:
-            # Используем корректный endpoint для заявок
-            response = await self._make_request('GET', '/issues', params={'limit': limit})
+            # Используем правильный endpoint согласно тестированию
+            response = await self._make_request(
+                'GET', 
+                '/api/v1/issues/list',
+                params={'limit': limit}
+            )
             
             if not response:
                 return []
             
+            # Если это уже список - возвращаем как есть
+            if isinstance(response, list):
+                return response
+                
             # API возвращает данные в разных форматах
             if isinstance(response, dict):
                 # Если есть поле data с массивом
@@ -195,8 +203,46 @@ class OkdeskAPI:
             logger.error(f"Ошибка при отправке комментария от контакта: {e}")
             return {}
 
-    async def add_comment(self, issue_id: int, content: str, is_public: bool = True, author_id: int = None, author_name: str = None, client_phone: str = None, contact_auth_code: str = None) -> Dict:
-        """Добавить комментарий к заявке"""
+    async def add_comment(self, issue_id: int, content: str, is_public: bool = True, 
+                         author_id: int = None, author_type: str = None, 
+                         author_name: str = None, client_phone: str = None, 
+                         contact_auth_code: str = None, contact_id: int = None) -> Dict:
+        """
+        Добавить комментарий к заявке
+        
+        Args:
+            issue_id: ID заявки
+            content: Текст комментария  
+            is_public: Публичный комментарий (по умолчанию True)
+            author_id: ID автора комментария
+            author_type: Тип автора ('contact' или 'employee')
+            author_name: Имя автора (для системных комментариев)
+            contact_id: ID контакта (устаревший параметр, используйте author_id + author_type)
+        """
+        
+        # Если указан contact_id (устаревший способ), преобразуем в новые параметры
+        if contact_id:
+            author_id = contact_id
+            author_type = 'contact'
+            
+        # Если указан author_type='contact', создаем комментарий от имени контакта
+        if author_id and author_type == 'contact':
+            logger.info(f"Создаем комментарий от контакта (ID: {author_id})")
+            data = {
+                'content': content,
+                'author_id': author_id,
+                'author_type': 'contact',
+                'public': is_public
+            }
+            
+            response = await self._make_request('POST', f'/api/v1/issues/{issue_id}/comments', data)
+            
+            if response and 'id' in response:
+                logger.info(f"✅ Комментарий создан от контакта (ID: {response['id']})")
+            else:
+                logger.error(f"❌ Не удалось создать комментарий от контакта: {response}")
+            
+            return response if response else {}
         
         # Если есть код авторизации контакта, сначала пробуем его (экспериментальная функция)
         if contact_auth_code:
@@ -207,9 +253,13 @@ class OkdeskAPI:
                 return auth_response
             logger.info("Код авторизации не сработал, используем системного пользователя")
         
-        # Основная логика - всегда используем системного пользователя
-        # Форматируем комментарий с указанием имени клиента
-        if author_name:
+        # Основная логика - создаем от системного пользователя или указанного автора
+        # Если не указан author_id, используем системного пользователя
+        if not author_id:
+            author_id = config.OKDESK_SYSTEM_USER_ID
+            
+        # Форматируем комментарий с указанием имени клиента (если автор не системный пользователь)
+        if author_name and author_id == config.OKDESK_SYSTEM_USER_ID:
             formatted_content = f"💬 **{author_name}**:\n\n{content}"
         else:
             formatted_content = content
@@ -217,10 +267,10 @@ class OkdeskAPI:
         data = {
             'content': formatted_content,
             'public': is_public,
-            'author_id': config.OKDESK_SYSTEM_USER_ID
+            'author_id': author_id
         }
         
-        logger.info(f"Создаем комментарий от системного пользователя (ID: {config.OKDESK_SYSTEM_USER_ID})")
+        logger.info(f"Создаем комментарий от пользователя (ID: {author_id})")
         response = await self._make_request('POST', f'/issues/{issue_id}/comments', data)
         
         if response and 'id' in response:
@@ -229,6 +279,38 @@ class OkdeskAPI:
             logger.error(f"❌ Не удалось создать комментарий: {response}")
         
         return response if response else {}
+    
+    async def get_issue_comments(self, issue_id: int) -> List[Dict]:
+        """Получить список комментариев заявки"""
+        try:
+            response = await self._make_request('GET', f'/api/v1/issues/{issue_id}/comments')
+            
+            if response is None:
+                return []
+            
+            # Если ответ - список, возвращаем как есть
+            if isinstance(response, list):
+                return response
+                
+            # Если ответ - словарь, ищем комментарии в разных полях
+            if isinstance(response, dict):
+                # Попробуем разные варианты структуры ответа
+                if 'comments' in response:
+                    return response['comments']
+                elif 'data' in response:
+                    return response['data']
+                elif 'results' in response:
+                    return response['results']
+                else:
+                    # Если есть одиночный комментарий
+                    if 'id' in response:
+                        return [response]
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"Ошибка при получении комментариев заявки {issue_id}: {e}")
+            return []
     
     async def get_employees(self, limit: int = 50) -> List[Dict]:
         """Получить список сотрудников"""
