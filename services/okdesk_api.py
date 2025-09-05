@@ -220,30 +220,6 @@ class OkdeskAPI:
             contact_id: ID контакта (устаревший параметр, используйте author_id + author_type)
         """
         
-        # Если указан contact_id (устаревший способ), преобразуем в новые параметры
-        if contact_id:
-            author_id = contact_id
-            author_type = 'contact'
-            
-        # Если указан author_type='contact', создаем комментарий от имени контакта
-        if author_id and author_type == 'contact':
-            logger.info(f"Создаем комментарий от контакта (ID: {author_id})")
-            data = {
-                'content': content,
-                'author_id': author_id,
-                'author_type': 'contact',
-                'public': is_public
-            }
-            
-            response = await self._make_request('POST', f'/api/v1/issues/{issue_id}/comments', data)
-            
-            if response and 'id' in response:
-                logger.info(f"✅ Комментарий создан от контакта (ID: {response['id']})")
-            else:
-                logger.error(f"❌ Не удалось создать комментарий от контакта: {response}")
-            
-            return response if response else {}
-        
         # Если есть код авторизации контакта, сначала пробуем его (экспериментальная функция)
         if contact_auth_code:
             logger.info("Попытка создать комментарий с кодом авторизации контакта")
@@ -253,25 +229,28 @@ class OkdeskAPI:
                 return auth_response
             logger.info("Код авторизации не сработал, используем системного пользователя")
         
-        # Основная логика - создаем от системного пользователя или указанного автора
-        # Если не указан author_id, используем системного пользователя
-        if not author_id:
-            author_id = config.OKDESK_SYSTEM_USER_ID
-            
-        # Форматируем комментарий с указанием имени клиента (если автор не системный пользователь)
-        if author_name and author_id == config.OKDESK_SYSTEM_USER_ID:
-            formatted_content = f"💬 **{author_name}**:\n\n{content}"
-        else:
-            formatted_content = content
-        
+        # Основная логика создания комментария
         data = {
-            'content': formatted_content,
-            'public': is_public,
-            'author_id': author_id
+            'content': content,
+            'public': is_public  # Всегда публичные для клиентов
         }
         
-        logger.info(f"Создаем комментарий от пользователя (ID: {author_id})")
-        response = await self._make_request('POST', f'/issues/{issue_id}/comments', data)
+        # Если указан контакт как автор - пытаемся создать от его имени
+        if author_type == "contact" and author_id:
+            data['author_id'] = author_id
+            data['author_type'] = "contact"
+            logger.info(f"Создаем комментарий от контакта (ID: {author_id})")
+        else:
+            # Иначе создаем от системного пользователя с форматированием имени
+            data['author_id'] = config.OKDESK_SYSTEM_USER_ID
+            
+            # Форматируем комментарий с указанием имени клиента
+            if author_name:
+                data['content'] = f"💬 **{author_name}** (через Telegram бот):\n\n{content}"
+            
+            logger.info(f"Создаем комментарий от системного пользователя (ID: {config.OKDESK_SYSTEM_USER_ID})")
+        
+        response = await self._make_request('POST', f'/api/v1/issues/{issue_id}/comments', data)
         
         if response and 'id' in response:
             logger.info(f"✅ Комментарий создан (ID: {response['id']})")

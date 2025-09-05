@@ -348,8 +348,7 @@ async def process_comment(message: Message, state: FSMContext):
                 response = await okdesk_api.add_comment(
                     issue_id=issue.okdesk_issue_id,
                     content=formatted_comment,
-                    author_id=config.OKDESK_SYSTEM_USER_ID,
-                    author_type="employee"  # Явно указываем тип автора
+                    author_id=config.OKDESK_SYSTEM_USER_ID
                 )
                 comment_source = "через системного пользователя"
             
