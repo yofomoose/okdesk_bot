@@ -284,11 +284,22 @@ async def view_issue(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("add_comment_"))
 async def add_comment_start(callback: CallbackQuery, state: FSMContext):
     """Начало добавления комментария"""
-    issue_id = int(callback.data.split("_")[-1])
-    await state.update_data(issue_id=issue_id)
+    identifier = int(callback.data.split("_")[-1])
+    
+    # Пытаемся найти заявку по ID или номеру
+    issue = IssueService.get_issue_by_id(identifier)
+    if not issue:
+        issue = IssueService.get_issue_by_number(identifier)
+    
+    if not issue:
+        await callback.message.edit_text("❌ Заявка не найдена")
+        return
+    
+    await state.update_data(issue_id=issue.id)
     
     await callback.message.edit_text(
-        "💬 Добавление комментария\n\n"
+        f"💬 Добавление комментария к заявке #{issue.issue_number}\n"
+        f"📝 {issue.title}\n\n"
         "Введите текст комментария:"
     )
     await state.set_state(IssueStates.waiting_for_comment)

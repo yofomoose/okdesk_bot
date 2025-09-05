@@ -151,6 +151,15 @@ class IssueService:
             db.close()
     
     @staticmethod
+    def get_issue_by_id(issue_id: int) -> Optional[Issue]:
+        """Получить заявку по ID"""
+        db = SessionLocal()
+        try:
+            return db.query(Issue).filter(Issue.id == issue_id).first()
+        finally:
+            db.close()
+    
+    @staticmethod
     def get_issue_by_number(issue_number: int) -> Optional[Issue]:
         """Получить заявку по номеру"""
         db = SessionLocal()
