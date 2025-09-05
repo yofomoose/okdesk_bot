@@ -454,7 +454,27 @@ async def show_profile(callback: CallbackQuery):
 @router.callback_query(F.data == "main_menu")
 async def back_to_menu(callback: CallbackQuery):
     """Возврат в главное меню"""
-    await cmd_menu(callback.message)
+    user = UserService.get_user_by_telegram_id(callback.from_user.id)
+    
+    # Если не удалось получить пользователя из базы, показываем меню с регистрацией
+    if not user or not is_user_registered(user):
+        await callback.message.edit_text(
+            "❌ Вы не зарегистрированы в системе.\n"
+            "Используйте команду /start для регистрации."
+        )
+        return
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
+        [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
+        [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
+    ])
+    
+    await callback.message.edit_text(
+        "🏠 Главное меню\n\n"
+        "Выберите действие:",
+        reply_markup=keyboard
+    )
 
 @router.callback_query(F.data.startswith("add_comment_"))
 async def start_add_comment(callback: CallbackQuery, state: FSMContext):
