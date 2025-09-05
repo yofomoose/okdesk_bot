@@ -40,7 +40,7 @@ class OkdeskAPI:
             }
         )
     
-    async def _make_request(self, method: str, endpoint: str, data: Dict = None) -> Dict:
+    async def _make_request(self, method: str, endpoint: str, data: Dict = None, headers: Dict = None, params: Dict = None) -> Dict:
         """Выполнить HTTP запрос к API"""
         if not self.session:
             self.session = await self._get_session()
@@ -134,14 +134,121 @@ class OkdeskAPI:
         response = await self._make_request('POST', '/issues', data)
         return response if response else {}
     
-    async def add_comment(self, issue_id: int, content: str, is_public: bool = True) -> Dict:
-        """Добавить комментарий к заявке"""
+    async def add_comment(self, issue_id: int, content: str, is_public: bool = True, 
+                         author_id: int = None, author_type: str = None, 
+                         author_name: str = None, client_phone: str = None, 
+                         contact_auth_code: str = None, contact_id: int = None) -> Dict:
+        """
+        Добавить комментарий к заявке
+        
+        Args:
+            issue_id: ID заявки
+            content: Текст комментария  
+            is_public: Публичный комментарий (по умолчанию True)
+            author_id: ID автора комментария
+            author_type: Тип автора ('contact' или 'employee')
+            author_name: Имя автора (для системных комментариев)
+            contact_id: ID контакта (устаревший параметр, используйте author_id + author_type)
+        """
+        
+        # Если есть код авторизации контакта, сначала пробуем его (экспериментальная функция)
+        if contact_auth_code:
+            logger.info("Попытка создать комментарий с кодом авторизации контакта")
+            auth_response = await self.add_comment_as_contact(issue_id, content, contact_auth_code)
+            if auth_response and ('id' in auth_response or auth_response.get('success')):
+                logger.info("✅ Комментарий создан с кодом авторизации")
+                return auth_response
+            logger.info("Код авторизации не сработал, используем системного пользователя")
+        
+        # Основная логика создания комментария
         data = {
             'content': content,
-            'public': is_public
+            'public': is_public  # Всегда публичные для клиентов
         }
+        
+        # Если указан контакт как автор - пытаемся создать от его имени
+        if author_type == "contact" and author_id:
+            data['author_id'] = author_id
+            data['author_type'] = "contact"
+            logger.info(f"Создаем комментарий от контакта (ID: {author_id})")
+        else:
+            # Иначе создаем от системного пользователя с форматированием имени
+            if not config.OKDESK_SYSTEM_USER_ID:
+                logger.error("❌ Системный пользователь не настроен (OKDESK_SYSTEM_USER_ID)")
+                return {}
+            
+            data['author_id'] = config.OKDESK_SYSTEM_USER_ID
+            data['author_type'] = "employee"
+            logger.info(f"Устанавливаем author_type=employee для системного пользователя")
+            
+            # Форматируем комментарий с указанием имени клиента
+            if author_name:
+                data['content'] = f"💬 **{author_name}** (через Telegram бот):\n\n{content}"
+            
+            logger.info(f"Создаем комментарий от системного пользователя (ID: {config.OKDESK_SYSTEM_USER_ID})")
+        
+        # Фильтруем None значения
+        if data:
+            data = {k: v for k, v in data.items() if v is not None}
+        
+        logger.info(f"Финальные данные для отправки: {data}")
         response = await self._make_request('POST', f'/issues/{issue_id}/comments', data)
+        
+        if response and 'id' in response:
+            logger.info(f"✅ Комментарий создан (ID: {response['id']})")
+        else:
+            logger.error(f"❌ Не удалось создать комментарий: {response}")
+        
         return response if response else {}
+    
+    async def add_comment_as_contact(self, issue_id: int, content: str, contact_auth_code: str = None) -> Dict:
+        """Добавить комментарий от имени контакта используя код авторизации"""
+        if not contact_auth_code:
+            return {}
+            
+        try:
+            # Согласно документации, для комментариев от контактов используется endpoint без api_token
+            # Извлекаем базовый URL без токена
+            if '?' in self.base_url:
+                base_url_clean = self.base_url.split('?')[0]
+            else:
+                base_url_clean = self.base_url
+            
+            comment_url = f"{base_url_clean}/issues/{issue_id}/comments"
+            
+            data = {
+                'content': content,
+                'public': True,
+                'contact_auth_code': contact_auth_code
+            }
+            
+            logger.info(f"Отправка комментария от контакта с кодом авторизации")
+            logger.info(f"URL: {comment_url}")
+            
+            if not self.session:
+                self.session = await self._get_session()
+            
+            async with self.session.post(comment_url, json=data) as resp:
+                logger.info(f"Response status: {resp.status}")
+                response_text = await resp.text()
+                logger.info(f"Response: {response_text}")
+                
+                if resp.status in [200, 201]:
+                    if response_text:
+                        try:
+                            result = await resp.json()
+                            logger.info(f"✅ Комментарий создан от контакта: ID {result.get('id')}")
+                            return result
+                        except:
+                            logger.info(f"✅ Комментарий создан от контакта (без JSON ответа)")
+                            return {"success": True}
+                    return {"success": True}
+                else:
+                    logger.error(f"API Error {resp.status}: {response_text}")
+                    return {}
+        except Exception as e:
+            logger.error(f"Ошибка при отправке комментария от контакта: {e}")
+            return {}
     
     async def get_contacts(self, limit: int = 50) -> List[Dict]:
         """Получить список контактов"""
