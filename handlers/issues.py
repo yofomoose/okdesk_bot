@@ -341,71 +341,54 @@ async def process_comment(message: Message, state: FSMContext):
             logger.info(f"📋 okdesk_contact_id: {user.okdesk_contact_id}")
             
             # Если у пользователя есть contact_id, создаем комментарий от его имени
-            if user.okdesk_contact_id:
-                logger.info(f"✅ Используем существующий контакт ID: {user.okdesk_contact_id}")
-                response = await okdesk_api.add_comment(
-                    issue_id=issue.okdesk_issue_id,
-                    content=f"{comment_text}\n\n(Отправлено через Telegram бот)",
-                    author_id=user.okdesk_contact_id,
-                    author_type="contact"
-                )
-                comment_source = "от вашего имени"
-            else:
-                # Для пользователей без contact_id - создаем контакт автоматически
-                logger.info(f"🔍 У пользователя {user.telegram_id} нет контакта, создаем автоматически...")
-                logger.info(f"📞 Телефон: {user.phone}, Имя: {user.full_name}")
-                
-                name_parts = user.full_name.split(' ', 1) if user.full_name else ['Клиент', '']
-                first_name = name_parts[0]
-                last_name = name_parts[1] if len(name_parts) > 1 else "Клиент"
-                
-                logger.info(f"👤 Создаем контакт: {first_name} {last_name}")
-                contact_response = await okdesk_api.create_contact(
-                    first_name=first_name,
-                    last_name=last_name,
-                    phone=user.phone,
-                    comment=f"Создан автоматически при добавлении комментария (Telegram ID: {user.telegram_id})"
-                )
-                
-                if contact_response and 'id' in contact_response:
-                    contact_id = contact_response['id']
-                    logger.info(f"✅ Контакт создан с ID: {contact_id}")
+            contact_id = user.okdesk_contact_id
+            if not contact_id:
+                # Пытаемся найти контакт по номеру телефона через Okdesk API
+                logger.info(f"🔍 Ищем контакт по номеру телефона: {user.phone}")
+                found_contact = await okdesk_api.find_contact_by_phone(user.phone)
+                if found_contact and 'id' in found_contact:
+                    contact_id = found_contact['id']
+                    logger.info(f"✅ Найден существующий контакт с ID: {contact_id}")
                     # Сохраняем ID контакта в базе данных
                     UserService.update_user_contact_info(
                         user_id=user.id,
                         contact_id=contact_id,
-                        auth_code=contact_response.get('authentication_code')
+                        auth_code=found_contact.get('authentication_code')
                     )
-                    
-                    # Создаем комментарий от имени нового контакта
-                    logger.info(f"💬 Создаем комментарий от нового контакта ID: {contact_id}")
-                    response = await okdesk_api.add_comment(
-                        issue_id=issue.okdesk_issue_id,
-                        content=f"{comment_text}\n\n(Отправлено через Telegram бот)",
-                        author_id=contact_id,
-                        author_type="contact"
-                    )
-                    comment_source = "от вашего имени (новый контакт создан)"
-                    logger.info(f"✅ Создан новый контакт с ID {contact_id} для пользователя {user.telegram_id}")
                 else:
-                    logger.error(f"❌ Не удалось создать контакт для пользователя {user.telegram_id}")
-                    logger.error(f"Ответ API: {contact_response}")
-                    # Fallback: используем системного пользователя
-                    logger.warning(f"⚠️ Используем системного пользователя как fallback")
-                    if not config.OKDESK_SYSTEM_USER_ID:
-                        await message.answer("❌ Ошибка: системный пользователь не настроен")
+                    # Если контакт не найден, создаем новый
+                    logger.info(f"� Контакт не найден, создаем новый...")
+                    name_parts = user.full_name.split(' ', 1) if user.full_name else ['Клиент', '']
+                    first_name = name_parts[0]
+                    last_name = name_parts[1] if len(name_parts) > 1 else "Клиент"
+                    contact_response = await okdesk_api.create_contact(
+                        first_name=first_name,
+                        last_name=last_name,
+                        phone=user.phone,
+                        comment=f"Создан автоматически при добавлении комментария (Telegram ID: {user.telegram_id})"
+                    )
+                    if contact_response and 'id' in contact_response:
+                        contact_id = contact_response['id']
+                        logger.info(f"✅ Контакт создан с ID: {contact_id}")
+                        UserService.update_user_contact_info(
+                            user_id=user.id,
+                            contact_id=contact_id,
+                            auth_code=contact_response.get('authentication_code')
+                        )
+                    else:
+                        logger.error(f"❌ Не удалось создать контакт для пользователя {user.telegram_id}")
+                        logger.error(f"Ответ API: {contact_response}")
+                        await message.answer("❌ Не удалось создать контакт для комментария. Попробуйте позже или обратитесь к администратору.")
                         await state.clear()
                         return
-                    
-                    formatted_comment = f"💬 **{user.full_name or 'Клиент'}** (через Telegram):\n\n{comment_text}"
-                    
-                    response = await okdesk_api.add_comment(
-                        issue_id=issue.okdesk_issue_id,
-                        content=formatted_comment,
-                        author_id=config.OKDESK_SYSTEM_USER_ID,
-                        author_type="employee"
-                    )
-                    comment_source = "через системного пользователя"
+            # Создаем комментарий от имени найденного или нового контакта
+            response = await okdesk_api.add_comment(
+                issue_id=issue.okdesk_issue_id,
+                content=f"{comment_text}\n\n(Отправлено через Telegram бот)",
+                author_id=contact_id,
+                author_type="contact"
+            )
+            comment_source = "от вашего имени"
             
             if response and response.get("id"):
                 logger.info(f"✅ Комментарий успешно добавлен к заявке #{issue.issue_number}")
