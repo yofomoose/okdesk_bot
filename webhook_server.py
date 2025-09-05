@@ -275,14 +275,21 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
     
+    print(f"📤 Отправка уведомления пользователю {issue.telegram_user_id} о комментарии к заявке #{issue.issue_number}")
+    print(f"📝 Сообщение: {message[:100]}...")
+    print(f"🔘 Кнопки: {[btn.text for row in keyboard.inline_keyboard for btn in row]}")
+    
     try:
         await bot.send_message(
             chat_id=issue.telegram_user_id,
             text=message,
             reply_markup=keyboard
         )
+        print(f"✅ Уведомление о комментарии отправлено пользователю {issue.telegram_user_id}")
     except Exception as e:
-        print(f"Failed to send comment notification: {e}")
+        print(f"❌ Failed to send comment notification: {e}")
+        import traceback
+        traceback.print_exc()
 
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     """Проверка подписи вебхука"""
