@@ -270,8 +270,9 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
     # Создаем клавиатуру с кнопками быстрого доступа
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📝 Ответить", callback_data=f"add_comment_{issue.issue_number}")],
-        [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
-        [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")]
+        [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues"),
+         InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
     
     try:
