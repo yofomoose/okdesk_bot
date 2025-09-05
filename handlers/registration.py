@@ -170,10 +170,9 @@ async def process_phone(message: Message, state: FSMContext):
                     f"{contact_info}\n\n"
                     "Теперь вы можете создавать заявки. Используйте /menu для доступа к функциям."
                 )
+                await state.clear()  # Очищаем состояние только для физических лиц
             else:
                 await message.answer("❌ Ошибка при сохранении данных. Попробуйте снова.")
-        
-        await state.clear()
         
     elif user_type == "legal":
         # Для юридических лиц переходим к вводу ИНН
@@ -181,8 +180,6 @@ async def process_phone(message: Message, state: FSMContext):
             "🏢 Теперь введите ИНН вашей компании:"
         )
         await state.set_state(RegistrationStates.waiting_for_inn)
-    
-    await state.clear()
 
 @router.message(StateFilter(RegistrationStates.waiting_for_inn))
 async def process_inn(message: Message, state: FSMContext):
