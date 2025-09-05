@@ -1,6 +1,9 @@
 from models.database import SessionLocal, User, Issue, Comment
 from sqlalchemy.orm import Session
 from typing import Optional, List
+import logging
+
+logger = logging.getLogger(__name__)
 
 class UserService:
     """Сервис для работы с пользователями"""
@@ -8,29 +11,44 @@ class UserService:
     @staticmethod
     def get_user_by_telegram_id(telegram_id: int) -> Optional[User]:
         """Получить пользователя по Telegram ID"""
-        db = SessionLocal()
         try:
-            return db.query(User).filter(User.telegram_id == telegram_id).first()
-        finally:
-            db.close()
+            db = SessionLocal()
+            try:
+                return db.query(User).filter(User.telegram_id == telegram_id).first()
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Ошибка получения пользователя {telegram_id}: {e}")
+            return None
     
     @staticmethod
     def create_user(telegram_id: int, username: str = None) -> User:
         """Создать нового пользователя"""
-        db = SessionLocal()
         try:
-            user = User(
-                telegram_id=telegram_id,
-                username=username,
-                user_type="",  # Будет установлен позже
-                is_registered=False
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
+            db = SessionLocal()
+            try:
+                user = User(
+                    telegram_id=telegram_id,
+                    username=username,
+                    user_type="",  # Будет установлен позже
+                    is_registered=False
+                )
+                db.add(user)
+                db.commit()
+                db.refresh(user)
+                return user
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Ошибка создания пользователя {telegram_id}: {e}")
+            # Возвращаем фиктивного пользователя для работы без базы данных
+            user = User()
+            user.telegram_id = telegram_id
+            user.username = username
+            user.id = -1  # Фиктивный ID
+            user.user_type = ""
+            user.is_registered = False
             return user
-        finally:
-            db.close()
     
     @staticmethod
     def update_user_physical(user_id: int, full_name: str, phone: str) -> Optional[User]:
