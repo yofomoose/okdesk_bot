@@ -386,7 +386,8 @@ async def process_comment(message: Message, state: FSMContext):
                 issue_id=issue.okdesk_issue_id,
                 content=f"{comment_text}\n\n(Отправлено через Telegram бот)",
                 author_id=contact_id,
-                author_type="contact"
+                author_type="contact",
+                client_phone=user.phone  # Передаем телефон для запасного поиска контакта
             )
             comment_source = "от вашего имени"
             

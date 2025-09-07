@@ -59,6 +59,10 @@ class OkdeskAPI:
             
         logger.info(f"{method} {url}")
         
+        # Добавляем больше логирования для отладки
+        if data:
+            logger.info(f"Request data: {data}")
+            
         try:
             async with self.session.request(method, url, json=data) as response:
                 response_text = await response.text()
@@ -67,11 +71,23 @@ class OkdeskAPI:
                 
                 if response.status in [200, 201]:
                     try:
-                        return await response.json()
-                    except:
+                        result = await response.json()
+                        logger.info(f"Parsed response: {str(result)[:200]}...")
+                        return result
+                    except Exception as parse_error:
+                        logger.error(f"Error parsing JSON: {parse_error}")
                         return {"success": True, "text": response_text}
                 else:
-                    logger.error(f"API Error {response.status}: {response_text}")
+                    error_msg = f"API Error {response.status}: {response_text}"
+                    logger.error(error_msg)
+                    # Для ошибок 4xx пытаемся разобрать JSON ответ
+                    if 400 <= response.status < 500:
+                        try:
+                            error_json = await response.json()
+                            logger.error(f"Error details: {error_json}")
+                            return error_json
+                        except:
+                            pass
                     return None
         except Exception as e:
             logger.error(f"API Error: {e}")
@@ -122,7 +138,23 @@ class OkdeskAPI:
             'status_id': kwargs.get('status_id', 1),  # Статус по умолчанию
         }
         
-        # Добавляем дополнительные параметры если они есть
+        # Привязываем клиента к заявке по новому формату API Okdesk
+        client = {}
+        
+        # Добавляем контакт, если указан
+        if 'contact_id' in kwargs and kwargs['contact_id']:
+            client['contact'] = {'id': kwargs['contact_id']}
+        
+        # Добавляем компанию, если указана
+        if 'company_id' in kwargs and kwargs['company_id']:
+            client['company'] = {'id': kwargs['company_id']}
+        
+        # Добавляем клиента к данным заявки, если есть контакт или компания
+        if client:
+            data['client'] = client
+            logger.info(f"✅ Привязываем клиента к заявке: {client}")
+        
+        # Для обратной совместимости также оставляем старые параметры
         if 'contact_id' in kwargs:
             data['contact_id'] = kwargs['contact_id']
         if 'company_id' in kwargs:
@@ -178,8 +210,20 @@ class OkdeskAPI:
             data['author_type'] = author_type
         else:
             logger.error(f"❌ ОШИБКА: author_id={author_id}, author_type={author_type}")
-            # Если нет author_id, пытаемся использовать запасной вариант
-            if not author_id:
+            # Пытаемся найти контакт по телефону, если предоставлен client_phone
+            if client_phone:
+                logger.info(f"🔍 Пытаемся найти контакт по телефону: {client_phone}")
+                contact = await self.find_contact_by_phone(client_phone)
+                if contact and 'id' in contact:
+                    data['author_id'] = contact['id']
+                    data['author_type'] = 'contact'
+                    logger.info(f"✅ Используем найденный контакт: author_id={contact['id']}, author_type=contact")
+                else:
+                    # Если контакт не найден, используем системного пользователя
+                    data['author_id'] = 5  # ID Manager
+                    data['author_type'] = 'employee'
+                    logger.warning(f"⚠️ Контакт не найден. Используем fallback: author_id=5, author_type=employee")
+            else:
                 # Используем системного пользователя как fallback
                 data['author_id'] = 5  # ID Manager из ваших логов
                 data['author_type'] = 'employee'
@@ -281,17 +325,37 @@ class OkdeskAPI:
     async def find_contact_by_phone(self, phone: str) -> Optional[Dict]:
         """Найти контакт по номеру телефона через API (рекомендуемый метод)"""
         try:
-            # Используем API endpoint /contacts/search с параметром phone
-            endpoint = f"/contacts/search?phone={phone}"
+            # Прямой поиск по телефону (возвращает одиночный объект, а не список!)
+            endpoint = f"/contacts?phone={phone}"
+            logger.info(f"🔍 Прямой поиск контакта по телефону: {phone}")
             response = await self._make_request('GET', endpoint)
             
-            if response and isinstance(response, list) and len(response) > 0:
-                contact = response[0]  # первый найденный контакт
-                logger.info(f"✅ Найден контакт через API: {contact.get('name', 'Без имени')} (ID: {contact.get('id')})")
-                return contact
-            else:
-                logger.info(f"❌ Контакт с телефоном {phone} не найден через API")
-                return None
+            # Проверяем формат ответа и наличие id
+            if response and isinstance(response, dict) and 'id' in response:
+                logger.info(f"✅ Найден контакт через API: {response.get('name', 'Без имени')} (ID: {response.get('id')})")
+                return response
+            
+            # Если не нашли, попробуем поиск всех контактов и фильтрацию (на случай если телефон в другом формате)
+            logger.info(f"🔍 Поиск контакта среди всех контактов (запасной вариант)")
+            endpoint = f"/contacts?limit=50"  # Получаем первые 50 контактов
+            response = await self._make_request('GET', endpoint)
+            
+            if response and isinstance(response, list):
+                for contact in response:
+                    # Проверяем, содержит ли контакт указанный телефон (с разными форматами)
+                    contact_phone = contact.get('phone', '')
+                    contact_mobile = contact.get('mobile_phone', '')
+                    # Удаляем пробелы, тире и другие символы для сравнения
+                    clean_phone = ''.join(c for c in phone if c.isdigit())
+                    clean_contact_phone = ''.join(c for c in contact_phone if c.isdigit())
+                    clean_contact_mobile = ''.join(c for c in contact_mobile if c.isdigit())
+                    
+                    if clean_phone and (clean_phone in clean_contact_phone or clean_phone in clean_contact_mobile):
+                        logger.info(f"✅ Найден контакт через поиск: {contact.get('name', 'Без имени')} (ID: {contact.get('id')})")
+                        return contact
+            
+            logger.info(f"❌ Контакт с телефоном {phone} не найден через API")
+            return None
         except Exception as e:
             logger.error(f"Ошибка поиска контакта через API: {e}")
             return None
