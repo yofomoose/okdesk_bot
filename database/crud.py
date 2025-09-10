@@ -114,6 +114,50 @@ class UserService:
             return user
         finally:
             db.close()
+    
+    @staticmethod
+    def update_contact_id_by_telegram_id(telegram_id: int, contact_id: int) -> Optional[User]:
+        """Обновить ID контакта OkDesk для пользователя по telegram_id"""
+        logger.info(f"Обновление contact_id={contact_id} для пользователя telegram_id={telegram_id}")
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.telegram_id == telegram_id).first()
+            if user:
+                user.okdesk_contact_id = contact_id
+                db.commit()
+                db.refresh(user)
+                logger.info(f"✅ Успешно обновлен контакт для пользователя {telegram_id}: contact_id={contact_id}")
+                return user
+            else:
+                logger.warning(f"⚠️ Пользователь с telegram_id={telegram_id} не найден в базе данных")
+                return None
+        except Exception as e:
+            logger.error(f"❌ Ошибка при обновлении contact_id для пользователя {telegram_id}: {e}")
+            return None
+        finally:
+            db.close()
+    
+    @staticmethod
+    def update_company_id_by_telegram_id(telegram_id: int, company_id: int) -> Optional[User]:
+        """Обновить ID компании OkDesk для пользователя по telegram_id"""
+        logger.info(f"Обновление company_id={company_id} для пользователя telegram_id={telegram_id}")
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.telegram_id == telegram_id).first()
+            if user:
+                user.okdesk_company_id = company_id
+                db.commit()
+                db.refresh(user)
+                logger.info(f"✅ Успешно обновлена компания для пользователя {telegram_id}: company_id={company_id}")
+                return user
+            else:
+                logger.warning(f"⚠️ Пользователь с telegram_id={telegram_id} не найден в базе данных")
+                return None
+        except Exception as e:
+            logger.error(f"❌ Ошибка при обновлении company_id для пользователя {telegram_id}: {e}")
+            return None
+        finally:
+            db.close()
 
 class IssueService:
     """Сервис для работы с заявками"""

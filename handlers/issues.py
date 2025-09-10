@@ -9,6 +9,7 @@ from models.database import SessionLocal, Issue
 from utils.helpers import create_issue_title
 import config
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -147,6 +148,24 @@ async def process_issue_description(message: Message, state: FSMContext):
     # Создаем заявку через API Okdesk
     okdesk_api = OkdeskAPI()
     try:
+        # Определяем функцию обратного вызова для обновления contact_id
+        async def update_contact_callback(contact_id: int):
+            from database.crud import UserService
+            await asyncio.get_event_loop().run_in_executor(
+                None, 
+                UserService.update_contact_id_by_telegram_id,
+                user.telegram_id, 
+                contact_id
+            )
+            logger.info(f"✅ Обновлен contact_id={contact_id} для пользователя {user.telegram_id}")
+        
+        # Добавляем ИНН компании, если он есть
+        if user.inn_company and not user_data.get("inn"):
+            user_data["inn"] = user.inn_company
+        
+        # Добавляем функцию обратного вызова для обновления contact_id
+        user_data["update_contact_callback"] = update_contact_callback
+        
         # Если у пользователя нет ID контакта, но есть телефон, 
         # try-блок внутри create_issue попытается найти его по телефону
         response = await okdesk_api.create_issue(title, description, **user_data)

@@ -197,6 +197,14 @@ class OkdeskAPI:
                 # Также добавляем его в kwargs для дальнейшего использования
                 kwargs['contact_id'] = contact['id']
                 logger.info(f"✅ Добавляем contact_id в параметры: {kwargs['contact_id']}")
+                
+                # Если предоставлена функция обратного вызова для обновления контакта, вызываем её
+                if 'update_contact_callback' in kwargs and callable(kwargs['update_contact_callback']):
+                    try:
+                        logger.info(f"✅ Вызываем callback для обновления найденного contact_id={contact['id']}")
+                        await kwargs['update_contact_callback'](contact['id'])
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка при вызове update_contact_callback: {e}")
             else:
                 # Если контакт не найден, создаем новый
                 logger.info(f"❗ Контакт не найден по телефону. Создаем новый контакт.")
@@ -222,13 +230,60 @@ class OkdeskAPI:
                     # Также добавляем его в kwargs для дальнейшего использования
                     kwargs['contact_id'] = new_contact['id']
                     logger.info(f"✅ Добавляем новый contact_id в параметры: {kwargs['contact_id']}")
+                    
+                    # Если предоставлена функция обратного вызова для обновления контакта, вызываем её
+                    if 'update_contact_callback' in kwargs and callable(kwargs['update_contact_callback']):
+                        try:
+                            logger.info(f"✅ Вызываем callback для обновления contact_id={new_contact['id']}")
+                            await kwargs['update_contact_callback'](new_contact['id'])
+                        except Exception as e:
+                            logger.error(f"❌ Ошибка при вызове update_contact_callback: {e}")
+                    # Если указан telegram_id, обновляем запись пользователя в базе данных
+                    elif user_telegram_id:
+                        try:
+                            from services.database import DatabaseManager
+                            db = DatabaseManager('okdesk_bot.db')
+                            db.execute(
+                                "UPDATE users SET okdesk_contact_id = ? WHERE telegram_id = ?",
+                                (new_contact['id'], user_telegram_id)
+                            )
+                            db.commit()
+                            logger.info(f"✅ Обновлен okdesk_contact_id={new_contact['id']} для пользователя {user_telegram_id} в базе данных")
+                            db.close()
+                        except Exception as e:
+                            logger.error(f"❌ Ошибка при обновлении okdesk_contact_id в базе данных: {e}")
                 else:
                     logger.error(f"❌ Не удалось создать контакт: {new_contact}")
         
-        # Добавляем компанию, если указана
+        # Добавляем компанию, если указана явно
         if 'company_id' in kwargs and kwargs['company_id']:
             client['company'] = {'id': kwargs['company_id']}
             logger.info(f"✅ Привязываем компанию к заявке: company_id = {kwargs['company_id']}")
+        # Если компания не указана, но есть ИНН, пытаемся найти компанию по ИНН
+        elif 'inn' in kwargs and kwargs['inn']:
+            logger.info(f"🔍 Поиск компании по ИНН для привязки к заявке: {kwargs['inn']}")
+            company = await self.find_company_by_inn(kwargs['inn'])
+            if company and 'id' in company:
+                client['company'] = {'id': company['id']}
+                logger.info(f"✅ Привязываем компанию по ИНН: company_id = {company['id']}")
+                # Также добавляем его в kwargs для дальнейшего использования
+                kwargs['company_id'] = company['id']
+                logger.info(f"✅ Добавляем company_id в параметры: {kwargs['company_id']}")
+                
+                # Если есть user_telegram_id, обновляем okdesk_company_id в базе данных
+                if user_telegram_id:
+                    try:
+                        from services.database import DatabaseManager
+                        db = DatabaseManager('okdesk_bot.db')
+                        db.execute(
+                            "UPDATE users SET okdesk_company_id = ? WHERE telegram_id = ?",
+                            (company['id'], user_telegram_id)
+                        )
+                        db.commit()
+                        logger.info(f"✅ Обновлен okdesk_company_id={company['id']} для пользователя {user_telegram_id} в базе данных")
+                        db.close()
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка при обновлении okdesk_company_id в базе данных: {e}")
         
         # Добавляем клиента к данным заявки всегда, даже если нет контакта или компании
         # Это необходимо, чтобы API правильно обработало запрос
@@ -476,6 +531,33 @@ class OkdeskAPI:
             # Проверяем формат ответа и наличие id
             if response and isinstance(response, dict) and 'id' in response:
                 logger.info(f"✅ Найден контакт через API: {response.get('name', 'Без имени')} (ID: {response.get('id')})")
+                
+                # Если есть телефон, попробуем найти пользователя в базе и обновить его okdesk_contact_id
+                try:
+                    clean_search_phone = ''.join(c for c in phone if c.isdigit())
+                    from services.database import DatabaseManager
+                    db = DatabaseManager('okdesk_bot.db')
+                    
+                    # Получаем телефоны из базы и очищаем их для сравнения
+                    users = db.execute("SELECT telegram_id, phone FROM users WHERE okdesk_contact_id IS NULL").fetchall()
+                    for user_id, user_phone in users:
+                        if user_phone:
+                            clean_user_phone = ''.join(c for c in user_phone if c.isdigit())
+                            # Сравниваем последние 10 цифр телефонов
+                            if (len(clean_search_phone) >= 10 and len(clean_user_phone) >= 10 and
+                                clean_search_phone[-10:] == clean_user_phone[-10:]):
+                                # Обновляем okdesk_contact_id для пользователя
+                                db.execute(
+                                    "UPDATE users SET okdesk_contact_id = ? WHERE telegram_id = ?",
+                                    (response['id'], user_id)
+                                )
+                                db.commit()
+                                logger.info(f"✅ Обновлен okdesk_contact_id={response['id']} для пользователя {user_id} в базе данных")
+                    
+                    db.close()
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при обновлении okdesk_contact_id в базе данных: {e}")
+                
                 return response
             
             # Если не нашли, пробуем поиск с другим форматом телефона
@@ -555,6 +637,77 @@ class OkdeskAPI:
     async def search_contact_by_phone(self, phone: str) -> Dict:
         """Алиас метода find_contact_by_phone для обратной совместимости"""
         return await self.find_contact_by_phone(phone)
+    
+    async def find_company_by_inn(self, inn: str) -> Optional[Dict]:
+        """
+        Найти компанию по ИНН и сохранить её ID в базе данных для соответствующих пользователей
+        
+        Args:
+            inn: ИНН компании для поиска
+        
+        Returns:
+            Dict: Данные компании или None, если не найдена
+        """
+        try:
+            if not inn or not inn.strip():
+                logger.warning("❌ ИНН не указан для поиска компании")
+                return None
+            
+            # Очищаем ИНН от лишних символов
+            clean_inn = ''.join(c for c in inn if c.isdigit())
+            
+            if not clean_inn:
+                logger.warning(f"❌ ИНН '{inn}' не содержит цифр после очистки")
+                return None
+            
+            logger.info(f"🔍 Поиск компании по ИНН: {clean_inn}")
+            
+            # Запрашиваем API для поиска по ИНН
+            endpoint = f"/companies?inn={clean_inn}"
+            response = await self._make_request('GET', endpoint)
+            
+            # Проверяем формат ответа и наличие компаний
+            if response and isinstance(response, list) and response:
+                company = response[0]  # Берем первую найденную компанию
+                logger.info(f"✅ Найдена компания: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+                
+                # Если найдена компания, обновим её ID для всех пользователей с этим ИНН
+                try:
+                    from services.database import DatabaseManager
+                    db = DatabaseManager('okdesk_bot.db')
+                    
+                    # Получаем пользователей с этим ИНН, у которых не задан okdesk_company_id
+                    users = db.execute(
+                        "SELECT telegram_id FROM users WHERE inn = ? AND okdesk_company_id IS NULL", 
+                        (clean_inn,)
+                    ).fetchall()
+                    
+                    for user_row in users:
+                        user_id = user_row[0]
+                        # Обновляем okdesk_company_id для пользователя
+                        db.execute(
+                            "UPDATE users SET okdesk_company_id = ? WHERE telegram_id = ?",
+                            (company['id'], user_id)
+                        )
+                        logger.info(f"✅ Обновлен okdesk_company_id={company['id']} для пользователя {user_id} в базе данных")
+                    
+                    db.commit()
+                    db.close()
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при обновлении okdesk_company_id в базе данных: {e}")
+                
+                return company
+            
+            logger.info(f"❌ Компания с ИНН {inn} не найдена через API")
+            return None
+        except Exception as e:
+            logger.error(f"Ошибка поиска компании через API: {e}")
+            return None
+    
+    # Добавляем алиас метода для обратной совместимости
+    async def search_company_by_inn(self, inn: str) -> Optional[Dict]:
+        """Алиас метода find_company_by_inn для обратной совместимости"""
+        return await self.find_company_by_inn(inn)
     
     async def create_comment(self, issue_id: int, content: str, contact_id: int = None, phone: str = None, 
                         is_public: bool = True, full_name: str = None, telegram_id: str = None) -> Dict:
