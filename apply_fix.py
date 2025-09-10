@@ -7,7 +7,7 @@ import json
 import asyncio
 import logging
 from pprint import pprint
-from config import Config
+import config
 from services.okdesk_api import OkdeskAPI
 
 # Настройка логирования

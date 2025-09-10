@@ -8,7 +8,7 @@ import logging
 import base64
 from typing import Dict, List, Optional, Any
 from urllib.parse import urljoin
-from config import Config
+import config
 
 # Настраиваем логирование
 logging.basicConfig(level=logging.INFO)
@@ -20,8 +20,8 @@ class OkdeskAPI:
     
     def __init__(self, api_url: str = None, api_token: str = None):
         """Инициализация клиента API"""
-        self.api_url = api_url or Config.OKDESK_API_URL
-        self.api_token = api_token or Config.OKDESK_API_TOKEN
+        self.api_url = api_url or config.OKDESK_API_URL
+        self.api_token = api_token or config.OKDESK_API_TOKEN
         
         if not self.api_url.endswith('/api/v1/'):
             self.api_url = urljoin(self.api_url, '/api/v1/')
