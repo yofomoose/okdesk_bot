@@ -180,3 +180,75 @@ class DatabaseManager:
     def __del__(self):
         """Деструктор для закрытия соединения"""
         self.close()
+        
+    def update_okdesk_contact_id(self, telegram_id, contact_id):
+        """
+        Обновить ID контакта OkDesk для пользователя
+        
+        Args:
+            telegram_id (str): Telegram ID пользователя
+            contact_id (int): ID контакта в OkDesk
+        
+        Returns:
+            bool: True, если обновление успешно, иначе False
+        """
+        try:
+            logger.info(f"Обновление okdesk_contact_id={contact_id} для пользователя {telegram_id}")
+            self.execute(
+                "UPDATE users SET okdesk_contact_id = ? WHERE telegram_id = ?",
+                (contact_id, str(telegram_id))
+            )
+            self.commit()
+            
+            # Проверяем, было ли обновление успешным
+            user = self.fetch_one(
+                "SELECT okdesk_contact_id FROM users WHERE telegram_id = ?", 
+                (str(telegram_id),)
+            )
+            
+            if user and user[0] == contact_id:
+                logger.info(f"✅ Успешно обновлен okdesk_contact_id={contact_id} для пользователя {telegram_id}")
+                return True
+            else:
+                logger.warning(f"⚠️ Не удалось подтвердить обновление okdesk_contact_id для пользователя {telegram_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка при обновлении okdesk_contact_id для пользователя {telegram_id}: {e}")
+            return False
+    
+    def update_okdesk_company_id(self, telegram_id, company_id):
+        """
+        Обновить ID компании OkDesk для пользователя
+        
+        Args:
+            telegram_id (str): Telegram ID пользователя
+            company_id (int): ID компании в OkDesk
+        
+        Returns:
+            bool: True, если обновление успешно, иначе False
+        """
+        try:
+            logger.info(f"Обновление company_id={company_id} для пользователя {telegram_id}")
+            self.execute(
+                "UPDATE users SET company_id = ? WHERE telegram_id = ?",
+                (company_id, str(telegram_id))
+            )
+            self.commit()
+            
+            # Проверяем, было ли обновление успешным
+            user = self.fetch_one(
+                "SELECT company_id FROM users WHERE telegram_id = ?", 
+                (str(telegram_id),)
+            )
+            
+            if user and user[0] == company_id:
+                logger.info(f"✅ Успешно обновлен company_id={company_id} для пользователя {telegram_id}")
+                return True
+            else:
+                logger.warning(f"⚠️ Не удалось подтвердить обновление company_id для пользователя {telegram_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка при обновлении company_id для пользователя {telegram_id}: {e}")
+            return False

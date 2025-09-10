@@ -147,6 +147,33 @@ class OkdeskAPI:
         except Exception as e:
             logger.error(f"Ошибка получения заявки {issue_id}: {e}")
             return {}
+            
+    async def update_issue(self, issue_id: int, data: Dict) -> Dict:
+        """
+        Обновить заявку
+        
+        Args:
+            issue_id: ID заявки
+            data: Данные для обновления
+        
+        Returns:
+            Dict: Результат обновления или пустой словарь в случае ошибки
+        """
+        try:
+            logger.info(f"Обновление заявки {issue_id} с данными: {data}")
+            
+            # Отправляем запрос на обновление
+            response = await self._make_request('PUT', f'issues/{issue_id}', data)
+            
+            if response:
+                logger.info(f"✅ Заявка {issue_id} успешно обновлена")
+                return response
+            else:
+                logger.error(f"❌ Не удалось обновить заявку {issue_id}")
+                return {}
+        except Exception as e:
+            logger.error(f"Ошибка обновления заявки {issue_id}: {e}")
+            return {}
     
     async def create_issue(self, title: str, description: str, **kwargs) -> Dict:
         """Создать новую заявку"""

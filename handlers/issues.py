@@ -133,8 +133,7 @@ async def process_issue_description(message: Message, state: FSMContext):
         "user_type": user.user_type,
         "full_name": user.full_name,
         "phone": user.phone,
-        "inn_company": user.inn_company,
-        "company_id": user.company_id,
+        "inn": user.inn_company,  # Используем inn вместо inn_company для совместимости с API
         "telegram_id": user.telegram_id  # Добавляем Telegram ID для отслеживания
     }
     
@@ -144,6 +143,13 @@ async def process_issue_description(message: Message, state: FSMContext):
         logger.info(f"Привязываем контакт к заявке: contact_id = {user.okdesk_contact_id}")
     else:
         logger.warning(f"У пользователя {user.telegram_id} нет contact_id! Попытаемся найти по телефону.")
+    
+    # Если у пользователя есть привязка к компании, добавляем ее
+    if user.company_id:
+        user_data["company_id"] = user.company_id
+        logger.info(f"Привязываем компанию к заявке: company_id = {user.company_id}")
+    elif user.inn_company:
+        logger.info(f"У пользователя {user.telegram_id} есть ИНН ({user.inn_company}), попробуем найти компанию")
     
     # Создаем заявку через API Okdesk
     okdesk_api = OkdeskAPI()
