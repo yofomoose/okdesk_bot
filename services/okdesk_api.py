@@ -667,27 +667,12 @@ class OkdeskAPI:
             if field in kwargs and kwargs[field]:
                 data[field] = kwargs[field]
         
-        # Добавляем ИНН в параметры контакта, если он указан
+        # Примечание: ИНН не добавляем как параметр контакта, так как такой параметр не существует в OkDesk
+        # ИНН должен указываться в comment или связываться через company_id
         if 'inn_company' in kwargs and kwargs['inn_company']:
             inn = kwargs['inn_company']
-            
-            # Вариант 1: Как custom_parameters
-            if 'custom_parameters' not in data:
-                data['custom_parameters'] = {}
-            data['custom_parameters']['inn_company'] = inn
-            
-            # Вариант 2: Как parameters (массив объектов)
-            if 'parameters' not in data:
-                data['parameters'] = []
-            
-            data['parameters'].append({
-                'code': 'inn_company',
-                'name': 'ИНН',
-                'value': inn
-            })
-            
-            # Дополнительное поле в основных данных
-            data['inn_company'] = inn
+            logger.info(f"ИНН {inn} будет указан в комментарии, а не как отдельный параметр контакта")
+            # ИНН уже должен быть указан в comment при вызове этого метода
         
         logger.info(f"Создаем контакт с данными: {data}")
         response = await self._make_request('POST', 'contacts', data)
