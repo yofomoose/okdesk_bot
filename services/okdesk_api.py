@@ -153,6 +153,11 @@ class OkdeskAPI:
         # Логируем входные параметры для диагностики
         logger.info(f"📌 Входные параметры create_issue: {kwargs}")
         
+        # Получаем phone из kwargs для поиска контакта
+        phone = kwargs.get('phone')
+        user_telegram_id = kwargs.get('telegram_id')
+        full_name = kwargs.get('full_name')
+        
         data = {
             'title': title,
             'description': description,
@@ -160,6 +165,19 @@ class OkdeskAPI:
             'priority_id': kwargs.get('priority_id', 2),  # Приоритет по умолчанию
             'status_id': kwargs.get('status_id', 1),  # Статус по умолчанию
         }
+        
+        # Добавляем информацию о Telegram пользователе в описание, если она есть
+        if user_telegram_id or full_name:
+            telegram_info = "\n\n---\n"
+            if full_name:
+                telegram_info += f"👤 Имя: {full_name}\n"
+            if user_telegram_id:
+                telegram_info += f"🆔 Telegram ID: {user_telegram_id}\n"
+            if phone:
+                telegram_info += f"📱 Телефон: {phone}\n"
+            telegram_info += "---"
+            
+            data['description'] = data['description'] + telegram_info
         
         # Привязываем клиента к заявке по новому формату API Okdesk
         client = {}
@@ -170,21 +188,25 @@ class OkdeskAPI:
             logger.info(f"✅ Привязываем контакт к заявке: contact_id = {kwargs['contact_id']}")
         
         # Если указан телефон, но нет contact_id, пытаемся найти контакт по телефону
-        elif 'phone' in kwargs and kwargs['phone'] and 'contact_id' not in kwargs:
-            contact = await self.find_contact_by_phone(kwargs['phone'])
+        elif phone:
+            logger.info(f"🔍 Поиск контакта по телефону для привязки к заявке: {phone}")
+            contact = await self.find_contact_by_phone(phone)
             if contact and 'id' in contact:
                 client['contact'] = {'id': contact['id']}
                 logger.info(f"✅ Привязываем контакт по телефону: contact_id = {contact['id']}")
+                # Также добавляем его в kwargs для дальнейшего использования
+                kwargs['contact_id'] = contact['id']
+                logger.info(f"✅ Добавляем contact_id в параметры: {kwargs['contact_id']}")
         
         # Добавляем компанию, если указана
         if 'company_id' in kwargs and kwargs['company_id']:
             client['company'] = {'id': kwargs['company_id']}
             logger.info(f"✅ Привязываем компанию к заявке: company_id = {kwargs['company_id']}")
         
-        # Добавляем клиента к данным заявки, если есть контакт или компания
-        if client:
-            data['client'] = client
-            logger.info(f"✅ Привязываем клиента к заявке: {client}")
+        # Добавляем клиента к данным заявки всегда, даже если нет контакта или компании
+        # Это необходимо, чтобы API правильно обработало запрос
+        data['client'] = client
+        logger.info(f"✅ Привязываем клиента к заявке: {client}")
         
         # Для обратной совместимости также оставляем старые параметры
         if 'contact_id' in kwargs:
@@ -194,8 +216,27 @@ class OkdeskAPI:
         if 'assignee_id' in kwargs:
             data['assignee_id'] = kwargs['assignee_id']
         
+        # Добавляем явную привязку к пользователю, если у нас есть информация о нем
         logger.info(f"Создаем заявку с данными: {data}")
         response = await self._make_request('POST', 'issues', data)
+        
+        # Проверяем успешность создания заявки
+        if response and 'id' in response:
+            issue_id = response['id']
+            logger.info(f"✅ Заявка создана успешно: ID={issue_id}")
+            
+            # Проверяем привязку клиента
+            if not client.get('contact') and not client.get('company'):
+                logger.warning("⚠️ Заявка создана без привязки к клиенту")
+            elif not client.get('contact'):
+                logger.warning("⚠️ Заявка привязана только к компании, но не к контакту")
+            elif not client.get('company'):
+                logger.info("✅ Заявка привязана к контакту (без компании)")
+            else:
+                logger.info("✅ Заявка привязана к контакту и компании")
+        else:
+            logger.error(f"❌ Не удалось создать заявку: {response}")
+            
         return response if response else {}
     
     async def add_comment(self, issue_id: int, content: str, is_public: bool = True, 
@@ -346,11 +387,33 @@ class OkdeskAPI:
             if len(clean_phone) < 5:
                 logger.warning(f"❌ Некорректный формат телефона: {phone}")
                 return None
-                
-            # Прямой поиск по телефону
-            endpoint = f"/contacts?phone={phone}"
-            logger.info(f"🔍 Прямой поиск контакта по телефону: {phone}")
-            response = await self._make_request('GET', endpoint)
+            
+            # Создаем различные форматы телефона для поиска
+            formatted_phones = [phone]  # исходный телефон
+            
+            # Добавляем версию с + в начале, если его нет
+            if not phone.startswith('+'):
+                formatted_phones.append(f"+{clean_phone}")
+            
+            # Преобразования формата для российских номеров
+            if len(clean_phone) == 11 and clean_phone.startswith('8'):
+                formatted_phones.append(f"+7{clean_phone[1:]}")
+                formatted_phones.append(f"7{clean_phone[1:]}")
+            elif len(clean_phone) == 11 and clean_phone.startswith('7'):
+                formatted_phones.append(f"+{clean_phone}")
+                formatted_phones.append(f"8{clean_phone[1:]}")
+            elif len(clean_phone) == 10:  # если номер без кода страны
+                formatted_phones.append(f"+7{clean_phone}")
+                formatted_phones.append(f"7{clean_phone}")
+                formatted_phones.append(f"8{clean_phone}")
+            
+            logger.info(f"🔍 Варианты телефонов для поиска: {formatted_phones}")
+            
+            # Пробуем каждый формат телефона для поиска
+            for formatted_phone in formatted_phones:
+                endpoint = f"/contacts?phone={formatted_phone}"
+                logger.info(f"🔍 Поиск контакта по телефону: {formatted_phone}")
+                response = await self._make_request('GET', endpoint)
             
             # Проверяем формат ответа и наличие id
             if response and isinstance(response, dict) and 'id' in response:
@@ -434,6 +497,50 @@ class OkdeskAPI:
     async def search_contact_by_phone(self, phone: str) -> Dict:
         """Алиас метода find_contact_by_phone для обратной совместимости"""
         return await self.find_contact_by_phone(phone)
+    
+    async def create_comment(self, issue_id: int, content: str, contact_id: int = None, phone: str = None, is_public: bool = True) -> Dict:
+        """
+        Создать комментарий к заявке с автоматической привязкой автора
+        
+        Args:
+            issue_id: ID заявки
+            content: Текст комментария
+            contact_id: ID контакта в Okdesk (имеет приоритет над phone)
+            phone: Телефон для поиска контакта
+            is_public: Публичный комментарий (по умолчанию True)
+        
+        Returns:
+            Dict: Данные созданного комментария
+        """
+        # Определяем автора комментария
+        author_id = None
+        author_type = None
+        
+        # Если указан contact_id, используем его
+        if contact_id:
+            author_id = contact_id
+            author_type = 'contact'
+            logger.info(f"✅ Используем указанный contact_id={contact_id} в качестве автора комментария")
+        
+        # Если contact_id не указан, но указан телефон, ищем контакт по телефону
+        elif phone:
+            contact = await self.find_contact_by_phone(phone)
+            if contact and 'id' in contact:
+                author_id = contact['id']
+                author_type = 'contact'
+                logger.info(f"✅ Нашли контакт по телефону: id={contact['id']}, name={contact.get('name')}")
+            else:
+                logger.warning(f"⚠️ Не удалось найти контакт по телефону: {phone}")
+        
+        # Вызываем основной метод add_comment с нужными параметрами
+        return await self.add_comment(
+            issue_id=issue_id,
+            content=content,
+            is_public=is_public,
+            author_id=author_id,
+            author_type=author_type,
+            client_phone=phone if not contact_id else None
+        )
     
     async def close(self):
         """Метод для закрытия ресурсов (для совместимости)"""
