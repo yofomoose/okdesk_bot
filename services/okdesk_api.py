@@ -797,11 +797,21 @@ class OkdeskAPI:
             
             logger.info(f"🔍 Поиск компании по ИНН: {clean_inn}")
             
-            # Используем API-запрос с правильным параметром для поиска компании по ИНН
-            logger.info(f"🔍 Выполняем поиск компании через API по параметру inn_company={clean_inn}...")
+            # Пробуем несколько способов поиска компании по ИНН
+            logger.info(f"🔍 Выполняем поиск компании через API по custom_parameters[inn_company]={clean_inn}...")
             
-            # Делаем запрос с использованием параметра inn_company в соответствии с документацией API
-            companies = await self._make_request('GET', f"/companies/list?parameter[inn_company]={clean_inn}")
+            # Вариант 1: Поиск через custom_parameters для inn_company
+            companies = await self._make_request('GET', f"companies/list?custom_parameters[inn_company]={clean_inn}")
+            
+            if not companies or not isinstance(companies, list):
+                logger.info(f"🔍 Поиск по custom_parameters[inn_company] не дал результатов, пробуем custom_parameters[0001]={clean_inn}...")
+                # Вариант 2: Поиск через custom_parameters для кода 0001
+                companies = await self._make_request('GET', f"companies/list?custom_parameters[0001]={clean_inn}")
+            
+            if not companies or not isinstance(companies, list):
+                logger.info(f"🔍 Поиск по custom_parameters не дал результатов, пробуем старый метод parameter[inn_company]={clean_inn}...")
+                # Вариант 3: Старый метод (может работать в некоторых версиях API)
+                companies = await self._make_request('GET', f"companies/list?parameter[inn_company]={clean_inn}")
             
             # Переменная для найденной компании
             company = None
