@@ -211,7 +211,7 @@ async def process_inn(message: Message, state: FSMContext):
     
     try:
         print(f"DEBUG: Поиск компании с ИНН {inn}")
-        company = await okdesk_api.search_company_by_inn(inn)
+        company = await okdesk_api.find_company_by_inn(inn)
         print(f"DEBUG: Результат поиска: {company}")
         
         if company:
@@ -291,75 +291,165 @@ async def process_inn(message: Message, state: FSMContext):
                     await message.answer("❌ Ошибка при сохранении данных. Попробуйте снова.")
         
         else:
-            # Компания не найдена
+            # Компания не найдена - создаем новую
             await message.answer(
                 f"⚠️ Компания с ИНН {inn} не найдена в системе.\n"
-                "Регистрирую вас как физическое лицо с указанием ИНН..."
+                "Создаю компанию и привязываю ваш аккаунт к ней..."
+            )
+            
+            # Создаем компанию по ИНН
+            company_name = f"Компания с ИНН {inn}"
+            new_company = await okdesk_api.create_company(
+                name=company_name,
+                inn=inn,
+                comment=f"Компания создана автоматически из Telegram бота по ИНН {inn}"
             )
             
             if user:
-                # Сохраняем как физлицо с ИНН
-                updated_user = UserService.update_user_legal(
-                    user_id=user.id,
-                    inn_company=inn,
-                    company_id=None,
-                    company_name=None
-                )
-                
-                if updated_user:
-                    # Создаем контакт без привязки к компании
-                    try:
-                        name_parts = data.get("full_name", "").split(' ', 1)
-                        first_name = name_parts[0] if name_parts else data.get("full_name", "")
-                        last_name = name_parts[1] if len(name_parts) > 1 else "Клиент"
-                        
-                        contact_response = await okdesk_api.create_contact(
-                            first_name=first_name,
-                            last_name=last_name,
-                            phone=data.get("phone", ""),
-                            comment=f"ИНН: {inn}. Создан из Telegram бота (ID: {message.from_user.id})"
-                        )
-                        
-                        if contact_response and 'id' in contact_response:
-                            contact_id = contact_response['id']
-                            auth_code = contact_response.get('authentication_code')
-                            
-                            UserService.update_user_contact_info(
-                                user_id=updated_user.id,
-                                contact_id=contact_id,
-                                auth_code=auth_code
-                            )
-                            
-                            if auth_code:
-                                contact_info = (f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})\n"
-                                              f"🔐 Код авторизации: {auth_code}")
-                            else:
-                                contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})"
-                        else:
-                            contact_info = "\n⚠️ Не удалось создать контакт в Okdesk"
-                            
-                    except Exception as e:
-                        print(f"Ошибка создания контакта в Okdesk: {e}")
-                        contact_info = "\n⚠️ Ошибка при создании контакта в Okdesk"
-                    
-                    # Создаем клавиатуру с кнопками быстрого доступа
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
-                        [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
-                        [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
-                    ])
+                if new_company and 'id' in new_company:
+                    # Компания создана успешно, сохраняем данные компании
+                    updated_user = UserService.update_user_legal(
+                        user_id=user.id,
+                        inn_company=inn,
+                        company_id=new_company['id'],
+                        company_name=new_company.get('name', company_name)
+                    )
                     
                     await message.answer(
-                        "✅ Регистрация завершена!\n\n"
-                        f"👤 ФИО: {data.get('full_name', 'Не указано')}\n"
-                        f"📱 Телефон: {data.get('phone', 'Не указан')}\n"
-                        f"🔢 ИНН: {inn}"
-                        f"{contact_info}\n\n"
-                        "Теперь вы можете создавать заявки:",
-                        reply_markup=keyboard
+                        f"✅ Создана новая компания: {new_company.get('name', company_name)}\n"
+                        "🔗 Создаю ваш контакт и привязываю к этой компании..."
                     )
+                    
+                    if updated_user:
+                        # Создаем контакт с привязкой к новой компании
+                        try:
+                            name_parts = data.get("full_name", "").split(' ', 1)
+                            first_name = name_parts[0] if name_parts else data.get("full_name", "")
+                            last_name = name_parts[1] if len(name_parts) > 1 else "Представитель"
+                            
+                            contact_response = await okdesk_api.create_contact(
+                                first_name=first_name,
+                                last_name=last_name,
+                                phone=data.get("phone", ""),
+                                company_id=new_company['id'],  # Привязываем к созданной компании
+                                position="Представитель компании",
+                                comment=f"Контактное лицо компании. ИНН: {inn}. Создан из Telegram бота (ID: {message.from_user.id})"
+                            )
+                            
+                            # Обработка ответа создания контакта
+                            if contact_response and 'id' in contact_response:
+                                contact_id = contact_response['id']
+                                auth_code = contact_response.get('authentication_code')
+                                
+                                # Сохраняем ID контакта и код авторизации
+                                UserService.update_user_contact_info(
+                                    user_id=updated_user.id,
+                                    contact_id=contact_id,
+                                    auth_code=auth_code
+                                )
+                                
+                                if auth_code:
+                                    contact_info = (f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})\n"
+                                                  f"🔐 Код авторизации: {auth_code}\n"
+                                                  f"🌐 Веб-портал: https://yapomogu55.okdesk.ru")
+                                else:
+                                    contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})"
+                            else:
+                                contact_info = "\n⚠️ Не удалось создать контакт в Okdesk"
+                                
+                        except Exception as e:
+                            print(f"Ошибка создания контакта в Okdesk: {e}")
+                            contact_info = "\n⚠️ Ошибка при создании контакта в Okdesk"
+                            
+                        # Создаем клавиатуру с кнопками быстрого доступа
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
+                            [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
+                            [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
+                        ])
+                        
+                        await message.answer(
+                            "✅ Регистрация юридического лица завершена!\n\n"
+                            f"👤 ФИО: {data.get('full_name', 'Не указано')}\n"
+                            f"📱 Телефон: {data.get('phone', 'Не указан')}\n"
+                            f"🏢 Компания: {new_company.get('name', company_name)}\n"
+                            f"🔢 ИНН: {inn}"
+                            f"{contact_info}\n\n"
+                            "Теперь вы можете создавать заявки от имени компании:",
+                            reply_markup=keyboard
+                        )
                 else:
-                    await message.answer("❌ Ошибка при сохранении данных. Попробуйте снова.")
+                    # Не удалось создать компанию, регистрируем как физическое лицо
+                    await message.answer(
+                        f"❌ Не удалось создать компанию с ИНН {inn}.\n"
+                        "Регистрирую вас как физическое лицо с указанием ИНН..."
+                    )
+                    
+                    # Сохраняем как физлицо с ИНН
+                    updated_user = UserService.update_user_legal(
+                        user_id=user.id,
+                        inn_company=inn,
+                        company_id=None,
+                        company_name=None
+                    )
+                    
+                    if updated_user:
+                        # Инициализация переменной
+                        contact_info = ""
+                        
+                        # Создаем контакт без привязки к компании
+                        try:
+                            name_parts = data.get("full_name", "").split(' ', 1)
+                            first_name = name_parts[0] if name_parts else data.get("full_name", "")
+                            last_name = name_parts[1] if len(name_parts) > 1 else "Клиент"
+                            
+                            contact_response = await okdesk_api.create_contact(
+                                first_name=first_name,
+                                last_name=last_name,
+                                phone=data.get("phone", ""),
+                                comment=f"ИНН: {inn}. Создан из Telegram бота (ID: {message.from_user.id})"
+                            )
+                            
+                            if contact_response and 'id' in contact_response:
+                                contact_id = contact_response['id']
+                                auth_code = contact_response.get('authentication_code')
+                                
+                                UserService.update_user_contact_info(
+                                    user_id=updated_user.id,
+                                    contact_id=contact_id,
+                                    auth_code=auth_code
+                                )
+                                
+                                if auth_code:
+                                    contact_info = (f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})\n"
+                                                  f"🔐 Код авторизации: {auth_code}")
+                                else:
+                                    contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})"
+                            else:
+                                contact_info = "\n⚠️ Не удалось создать контакт в Okdesk"
+                                
+                        except Exception as e:
+                            print(f"Ошибка создания контакта в Okdesk: {e}")
+                            contact_info = "\n⚠️ Ошибка при создании контакта в Okdesk"
+                        
+                        # Создаем клавиатуру с кнопками быстрого доступа
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
+                            [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
+                            [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
+                        ])
+                        
+                        await message.answer(
+                            "✅ Регистрация завершена!\n\n"
+                            f"👤 ФИО: {data.get('full_name', 'Не указано')}\n"
+                            f"📱 Телефон: {data.get('phone', 'Не указан')}\n"
+                            f"🔢 ИНН: {inn}"
+                            f"{contact_info}\n\n"
+                            "Теперь вы можете создавать заявки:",
+                            reply_markup=keyboard
+                        )
+                    else:
+                        await message.answer("❌ Ошибка при сохранении данных. Попробуйте снова.")
         
     except Exception as e:
         print(f"Ошибка обработки ИНН: {e}")

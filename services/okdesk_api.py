@@ -676,15 +676,76 @@ class OkdeskAPI:
         """Алиас метода find_contact_by_phone для обратной совместимости"""
         return await self.find_contact_by_phone(phone)
     
-    async def find_company_by_inn(self, inn: str) -> Optional[Dict]:
+    async def create_company(self, name: str, inn: str = None, **kwargs) -> Dict:
         """
-        Найти компанию по ИНН и сохранить её ID в базе данных для соответствующих пользователей
+        Создать новую компанию
+        
+        Args:
+            name: Название компании
+            inn: ИНН компании
+            **kwargs: Дополнительные параметры (phone, email, etc)
+        
+        Returns:
+            Dict: Данные созданной компании или пустой словарь в случае ошибки
+        """
+        data = {
+            'name': name
+        }
+        
+        # Добавляем ИНН, если он указан
+        if inn and inn.strip():
+            data['inn'] = inn.strip()
+        
+        # Добавляем дополнительные поля
+        for field in ['phone', 'email', 'address', 'type_id', 'web_site', 'comment']:
+            if field in kwargs and kwargs[field]:
+                data[field] = kwargs[field]
+        
+        logger.info(f"Создаем компанию с данными: {data}")
+        response = await self._make_request('POST', 'companies', data)
+        
+        if response and 'id' in response:
+            logger.info(f"✅ Компания создана успешно: ID={response['id']}, Название={response.get('name', 'Без названия')}")
+            
+            # Если компания создана с ИНН, обновим базу данных пользователей
+            if inn:
+                try:
+                    from services.database import DatabaseManager
+                    db = DatabaseManager('okdesk_bot.db')
+                    
+                    # Получаем пользователей с этим ИНН, у которых не задан okdesk_company_id
+                    users = db.execute(
+                        "SELECT telegram_id FROM users WHERE inn = ? AND okdesk_company_id IS NULL", 
+                        (inn,)
+                    ).fetchall()
+                    
+                    for user_row in users:
+                        user_id = user_row[0]
+                        # Обновляем okdesk_company_id для пользователя
+                        db.execute(
+                            "UPDATE users SET okdesk_company_id = ? WHERE telegram_id = ?",
+                            (response['id'], user_id)
+                        )
+                        logger.info(f"✅ Обновлен okdesk_company_id={response['id']} для пользователя {user_id} в базе данных")
+                    
+                    db.commit()
+                    db.close()
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при обновлении okdesk_company_id в базе данных: {e}")
+                    
+        return response if response else {}
+    
+    async def find_company_by_inn(self, inn: str, create_if_not_found: bool = True) -> Optional[Dict]:
+        """
+        Найти компанию по ИНН и сохранить её ID в базе данных для соответствующих пользователей.
+        Если компания не найдена и параметр create_if_not_found=True, то создать новую компанию.
         
         Args:
             inn: ИНН компании для поиска
+            create_if_not_found: Создавать компанию, если не найдена (по умолчанию True)
         
         Returns:
-            Dict: Данные компании или None, если не найдена
+            Dict: Данные компании или None, если не найдена и не создана
         """
         try:
             if not inn or not inn.strip():
@@ -704,10 +765,46 @@ class OkdeskAPI:
             endpoint = f"/companies?inn={clean_inn}"
             response = await self._make_request('GET', endpoint)
             
+            # Переменная для найденной компании
+            company = None
+            
             # Проверяем формат ответа и наличие компаний
-            if response and isinstance(response, list) and response:
-                company = response[0]  # Берем первую найденную компанию
-                logger.info(f"✅ Найдена компания: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+            if response:
+                # Вариант 1: ответ в виде списка компаний
+                if isinstance(response, list) and response:
+                    company = response[0]  # Берем первую найденную компанию
+                    logger.info(f"✅ Найдена компания в списке: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+                
+                # Вариант 2: ответ в виде одной компании (словарь)
+                elif isinstance(response, dict) and 'id' in response:
+                    company = response
+                    logger.info(f"✅ Найдена компания как объект: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+            
+            # Вариант 3: Поиск по всем компаниям, если не нашли по ИНН напрямую
+            if not company:
+                logger.info(f"🔍 Не удалось найти компанию напрямую по ИНН. Пробуем получить список компаний.")
+                # Получаем список всех компаний
+                all_companies = await self._make_request('GET', "/companies")
+                if isinstance(all_companies, list):
+                    # Фильтруем компании по ИНН (ищем ИНН во всех полях)
+                    for comp in all_companies:
+                        # Проверяем ИНН непосредственно в данных компании
+                        if str(comp.get('inn', '')).strip() == clean_inn:
+                            company = comp
+                            logger.info(f"✅ Найдена компания в общем списке: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+                            break
+                        
+                        # Проверяем также в дополнительных параметрах
+                        if 'parameters' in comp:
+                            for param in comp.get('parameters', []):
+                                if param.get('code') in ['inn', 'INN', 'ИНН'] and param.get('value') == clean_inn:
+                                    company = comp
+                                    logger.info(f"✅ Найдена компания по параметру ИНН: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+                                    break
+            
+            # Если нашли компанию, обновим связи в базе данных
+            if company:
+                logger.info(f"✅ Компания найдена: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
                 
                 # Если найдена компания, обновим её ID для всех пользователей с этим ИНН
                 try:
@@ -737,9 +834,30 @@ class OkdeskAPI:
                 return company
             
             logger.info(f"❌ Компания с ИНН {inn} не найдена через API")
+            
+            # Если компания не найдена, но установлен флаг create_if_not_found, создаем новую компанию
+            if create_if_not_found:
+                logger.info(f"🔍 Компания с ИНН {inn} не найдена. Создаем новую компанию.")
+                
+                # Определяем название компании на основе ИНН
+                company_name = f"ИП/ООО с ИНН {inn}"
+                
+                # Создаем новую компанию
+                new_company = await self.create_company(
+                    name=company_name, 
+                    inn=inn,
+                    comment=f"Компания создана автоматически из Telegram бота по ИНН {inn}"
+                )
+                
+                if new_company and 'id' in new_company:
+                    logger.info(f"✅ Создана новая компания: {new_company.get('name')} (ID: {new_company['id']})")
+                    return new_company
+                else:
+                    logger.error(f"❌ Не удалось создать компанию с ИНН {inn}")
+            
             return None
         except Exception as e:
-            logger.error(f"Ошибка поиска компании через API: {e}")
+            logger.error(f"Ошибка поиска/создания компании через API: {e}")
             return None
     
     # Добавляем алиас метода для обратной совместимости
