@@ -129,14 +129,23 @@ async def process_phone(message: Message, state: FSMContext):
                 # Создаем контакт в Okdesk
                 try:
                     okdesk_api = OkdeskAPI()
-                    name_parts = updated_user.full_name.split(' ', 1)
-                    first_name = name_parts[0] if name_parts else updated_user.full_name
-                    last_name = name_parts[1] if len(name_parts) > 1 else "Клиент"
+                    # Правильно разбираем ФИО: Фамилия Имя Отчество
+                    name_parts = updated_user.full_name.split(' ')
+                    if len(name_parts) >= 2:
+                        last_name = name_parts[0]  # Фамилия
+                        first_name = name_parts[1]  # Имя
+                        patronymic = name_parts[2] if len(name_parts) > 2 else ""  # Отчество
+                    else:
+                        first_name = updated_user.full_name
+                        last_name = "Клиент"
+                        patronymic = ""
                     
                     contact_response = await okdesk_api.create_contact(
                         first_name=first_name,
                         last_name=last_name,
+                        patronymic=patronymic,
                         phone=updated_user.phone,
+                        telegram_username=message.from_user.username,
                         comment=f"Создан автоматически из Telegram бота (ID: {message.from_user.id})"
                     )
                     await okdesk_api.close()
@@ -247,16 +256,25 @@ async def process_inn(message: Message, state: FSMContext):
             if updated_user:
                 # Создаем контакт с привязкой к найденной компании
                 try:
-                    name_parts = data.get("full_name", "").split(' ', 1)
-                    first_name = name_parts[0] if name_parts else data.get("full_name", "")
-                    last_name = name_parts[1] if len(name_parts) > 1 else "Представитель"
+                    # Правильно разбираем ФИО: Фамилия Имя Отчество
+                    name_parts = data.get("full_name", "").split(' ')
+                    if len(name_parts) >= 2:
+                        last_name = name_parts[0]  # Фамилия
+                        first_name = name_parts[1]  # Имя
+                        patronymic = name_parts[2] if len(name_parts) > 2 else ""  # Отчество
+                    else:
+                        first_name = data.get("full_name", "")
+                        last_name = "Представитель"
+                        patronymic = ""
                     
                     contact_response = await okdesk_api.create_contact(
                         first_name=first_name,
                         last_name=last_name,
+                        patronymic=patronymic,
                         phone=data.get("phone", ""),
                         company_id=company_id,
                         position="Представитель компании",
+                        telegram_username=message.from_user.username,
                         inn_company=inn,
                         comment=f"Контактное лицо компании. ИНН: {inn}. Создан из Telegram бота (ID: {message.from_user.id})"
                     )
@@ -324,15 +342,24 @@ async def process_inn(message: Message, state: FSMContext):
             if updated_user:
                 # Создаем контакт без привязки к компании
                 try:
-                    name_parts = data.get("full_name", "").split(' ', 1)
-                    first_name = name_parts[0] if name_parts else data.get("full_name", "")
-                    last_name = name_parts[1] if len(name_parts) > 1 else "Представитель"
+                    # Правильно разбираем ФИО: Фамилия Имя Отчество
+                    name_parts = data.get("full_name", "").split(' ')
+                    if len(name_parts) >= 2:
+                        last_name = name_parts[0]  # Фамилия
+                        first_name = name_parts[1]  # Имя
+                        patronymic = name_parts[2] if len(name_parts) > 2 else ""  # Отчество
+                    else:
+                        first_name = data.get("full_name", "")
+                        last_name = "Представитель"
+                        patronymic = ""
                     
                     contact_response = await okdesk_api.create_contact(
                         first_name=first_name,
                         last_name=last_name,
+                        patronymic=patronymic,
                         phone=data.get("phone", ""),
                         position="Представитель",
+                        telegram_username=message.from_user.username,
                         inn_company=inn,
                         comment=f"ИНН: {inn}. Создан из Telegram бота (ID: {message.from_user.id})"
                     )

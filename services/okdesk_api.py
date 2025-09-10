@@ -662,10 +662,12 @@ class OkdeskAPI:
             'last_name': last_name
         }
         
-        # Добавляем дополнительные поля
-        for field in ['phone', 'email', 'company_id', 'position', 'comment']:
+        # Добавляем дополнительные поля согласно документации API
+        for field in ['patronymic', 'telegram_username', 'phone', 'email', 'company_id', 'position', 'comment']:
             if field in kwargs and kwargs[field]:
                 data[field] = kwargs[field]
+                if field == 'telegram_username':
+                    logger.info(f"Добавляем Telegram username: {kwargs[field]}")
         
         # Примечание: ИНН не добавляем как параметр контакта, так как такой параметр не существует в OkDesk
         # ИНН должен указываться в comment или связываться через company_id
