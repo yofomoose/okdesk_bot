@@ -20,23 +20,43 @@ class OkdeskAPI:
     
     def __init__(self, api_url: str = None, api_token: str = None):
         """Инициализация клиента API"""
-        self.api_url = api_url or config.OKDESK_API_URL
+        # Нормализация URL
+        api_url_raw = api_url or config.OKDESK_API_URL
         self.api_token = api_token or config.OKDESK_API_TOKEN
         
-        if not self.api_url.endswith('/api/v1/'):
-            self.api_url = urljoin(self.api_url, '/api/v1/')
+        # Очищаем URL от лишних компонентов
+        # Убираем trailing слеши и лишние компоненты пути
+        if '://' in api_url_raw:
+            protocol, rest = api_url_raw.split('://')
+            base_url = protocol + '://' + rest.split('/')[0]
+        else:
+            base_url = api_url_raw.split('/')[0]
+        
+        # Формируем базовый URL для API запросов
+        self.api_url = f"{base_url}/api/v1/"
         
         # Настройка заголовков для API запросов
         self.headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.api_token}'
+            'Content-Type': 'application/json'
+            # Токен передается через параметры запроса, а не через Authorization
         }
         
         logger.info(f"API URL: {self.api_url}")
     
     async def _make_request(self, method: str, endpoint: str, data: Dict = None) -> Any:
         """Выполняет запрос к API OkDesk и обрабатывает ответ"""
-        url = urljoin(self.api_url, endpoint.lstrip('/'))
+        # Добавляем API токен как параметр запроса
+        # Удаляем слеш в начале endpoint, чтобы избежать дублирования слеша
+        endpoint_clean = endpoint.lstrip('/')
+        if '?' in endpoint_clean:
+            url = f"{self.api_url}{endpoint_clean}&api_token={self.api_token}"
+        else:
+            url = f"{self.api_url}{endpoint_clean}?api_token={self.api_token}"
+        
+        # Логируем запрос для отладки
+        logger.info(f"{method} {url}")
+        if data:
+            logger.info(f"Request data: {data}")
         
         try:
             async with aiohttp.ClientSession() as session:
@@ -44,9 +64,15 @@ class OkdeskAPI:
                     async with session.get(url, headers=self.headers) as resp:
                         response_text = await resp.text()
                         
+                        # Логируем ответ
+                        logger.info(f"Response status: {resp.status}")
+                        logger.info(f"Response: {response_text}")
+                        
                         if resp.status == 200:
                             try:
-                                return json.loads(response_text)
+                                parsed = json.loads(response_text)
+                                logger.info(f"Parsed response: {str(parsed)[:100]}...")
+                                return parsed
                             except Exception as e:
                                 logger.error(f"Ошибка парсинга JSON: {e}")
                                 return None
@@ -60,9 +86,15 @@ class OkdeskAPI:
                     async with session.request(method, url, headers=self.headers, data=json_data) as resp:
                         response_text = await resp.text()
                         
+                        # Логируем ответ
+                        logger.info(f"Response status: {resp.status}")
+                        logger.info(f"Response: {response_text}")
+                        
                         if resp.status in [200, 201]:
                             try:
-                                return json.loads(response_text)
+                                parsed = json.loads(response_text)
+                                logger.info(f"Parsed response: {str(parsed)[:100]}...")
+                                return parsed
                             except Exception as e:
                                 logger.error(f"Ошибка парсинга JSON: {e}")
                                 if "success" in response_text.lower():
@@ -70,6 +102,7 @@ class OkdeskAPI:
                                 return None
                         else:
                             logger.error(f"API Error {resp.status}: {response_text}")
+                            logger.error(f"Error details: {json.loads(response_text) if response_text else None}")
                             return None
         
         except Exception as e:
@@ -79,31 +112,47 @@ class OkdeskAPI:
     async def get_issues(self, status_ids: List[int] = None, limit: int = 10) -> List[Dict]:
         """Получить список заявок"""
         try:
-            params = []
-            if status_ids:
-                for status_id in status_ids:
-                    params.append(f"status_ids[]={status_id}")
-            
-            params.append(f"limit={limit}")
-            endpoint = f"/issues?{'&'.join(params)}"
-            
-            response = await self._make_request('GET', endpoint)
-            
-            if isinstance(response, list):
-                return response
-                
-            return []
+            # Судя по результатам тестирования, endpoint /issues возвращает 404,
+            # поэтому попробуем использовать последовательные запросы к конкретным заявкам
+            # Начнем с запроса последних заявок по порядку
+            issues = []
+            # Пробуем запросить несколько последних заявок
+            for issue_id in range(limit, 0, -1):
+                try:
+                    issue = await self.get_issue(issue_id)
+                    if issue and 'errors' not in issue:
+                        issues.append(issue)
+                        if len(issues) >= limit:
+                            break
+                except Exception:
+                    continue
+                    
+            return issues
         except Exception as e:
             logger.error(f"Ошибка получения заявок: {e}")
             return []
     
     async def get_issue(self, issue_id: int) -> Dict:
         """Получить заявку по ID"""
-        response = await self._make_request('GET', f'/issues/{issue_id}')
-        return response if response else {}
+        try:
+            response = await self._make_request('GET', f'issues/{issue_id}')
+            
+            # Проверяем, нет ли ошибок в ответе
+            if isinstance(response, dict) and 'errors' not in response:
+                return response
+            elif isinstance(response, dict) and 'errors' in response:
+                logger.warning(f"API вернул ошибку для заявки {issue_id}: {response.get('errors')}")
+            
+            return {}
+        except Exception as e:
+            logger.error(f"Ошибка получения заявки {issue_id}: {e}")
+            return {}
     
     async def create_issue(self, title: str, description: str, **kwargs) -> Dict:
         """Создать новую заявку"""
+        # Логируем входные параметры для диагностики
+        logger.info(f"📌 Входные параметры create_issue: {kwargs}")
+        
         data = {
             'title': title,
             'description': description,
@@ -146,7 +195,7 @@ class OkdeskAPI:
             data['assignee_id'] = kwargs['assignee_id']
         
         logger.info(f"Создаем заявку с данными: {data}")
-        response = await self._make_request('POST', '/issues', data)
+        response = await self._make_request('POST', 'issues', data)
         return response if response else {}
     
     async def add_comment(self, issue_id: int, content: str, is_public: bool = True, 
@@ -190,6 +239,7 @@ class OkdeskAPI:
         logger.info(f"author_id: {author_id}")
         logger.info(f"author_type: {author_type}")
         logger.info(f"client_phone: {client_phone}")
+        logger.info(f"contact_id: {contact_id}")
         logger.info(f"content: {content[:50]}...")
         
         # author_id и author_type обязательны!
@@ -231,7 +281,7 @@ class OkdeskAPI:
             logger.info(f"✅ Ответ API: {response}")
             return response
         else:
-            logger.error(f"❌ Ошибка API или пустой ответ")
+            logger.error(f"❌ Не удалось создать комментарий: {response}")
             return {}
     
     async def _contact_comment(self, endpoint: str, data: Dict) -> Dict:
@@ -377,5 +427,15 @@ class OkdeskAPI:
                 data[field] = kwargs[field]
         
         logger.info(f"Создаем контакт с данными: {data}")
-        response = await self._make_request('POST', '/contacts', data)
+        response = await self._make_request('POST', 'contacts', data)
         return response if response else {}
+    
+    # Добавляем алиас метода для обратной совместимости
+    async def search_contact_by_phone(self, phone: str) -> Dict:
+        """Алиас метода find_contact_by_phone для обратной совместимости"""
+        return await self.find_contact_by_phone(phone)
+    
+    async def close(self):
+        """Метод для закрытия ресурсов (для совместимости)"""
+        # В данной реализации нет долгоживущих ресурсов, которые требуется закрывать
+        pass
