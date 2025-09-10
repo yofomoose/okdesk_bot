@@ -809,9 +809,30 @@ class OkdeskAPI:
             # Проверяем результаты поиска
             if isinstance(companies, list) and companies:
                 logger.info(f"✅ Найдено {len(companies)} компаний по запросу inn_company={clean_inn}")
-                # Берем первую найденную компанию, так как ИНН должен быть уникальным
-                company = companies[0]
-                logger.info(f"✅ Выбрана компания: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+                # Ищем компанию с точным совпадением ИНН
+                for comp in companies:
+                    # Проверяем ИНН в параметрах компании
+                    if 'parameters' in comp:
+                        for param in comp.get('parameters', []):
+                            # Проверяем разные коды параметров ИНН
+                            if param.get('code') in ['inn_company', '0001', 'INN', 'ИНН'] and str(param.get('value', '')).strip() == clean_inn:
+                                company = comp
+                                logger.info(f"✅ Найдена компания с точным совпадением ИНН {clean_inn}: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+                                break
+                    if company:
+                        break
+                
+                # Если не найдено точное совпадение, логируем это
+                if not company:
+                    logger.warning(f"⚠️ Среди {len(companies)} найденных компаний нет ни одной с точным ИНН {clean_inn}")
+                    # Для отладки покажем ИНН первых нескольких компаний
+                    for i, comp in enumerate(companies[:5]):
+                        comp_inns = []
+                        if 'parameters' in comp:
+                            for param in comp.get('parameters', []):
+                                if param.get('code') in ['inn_company', '0001', 'INN', 'ИНН']:
+                                    comp_inns.append(f"{param.get('code')}={param.get('value')}")
+                        logger.info(f"Компания {i+1}: {comp.get('name')} (ID: {comp.get('id')}) - ИНН: {', '.join(comp_inns) if comp_inns else 'не указан'}")
             else:
                 logger.info(f"❌ Компании с inn_company={clean_inn} не найдены через прямой API-запрос")
                 
