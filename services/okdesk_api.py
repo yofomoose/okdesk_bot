@@ -197,6 +197,33 @@ class OkdeskAPI:
                 # Также добавляем его в kwargs для дальнейшего использования
                 kwargs['contact_id'] = contact['id']
                 logger.info(f"✅ Добавляем contact_id в параметры: {kwargs['contact_id']}")
+            else:
+                # Если контакт не найден, создаем новый
+                logger.info(f"❗ Контакт не найден по телефону. Создаем новый контакт.")
+                
+                # Готовим данные для создания контакта
+                contact_data = {
+                    'first_name': kwargs.get('first_name', full_name.split()[0] if full_name else 'Пользователь'),
+                    'last_name': kwargs.get('last_name', ' '.join(full_name.split()[1:]) if full_name and len(full_name.split()) > 1 else 'Telegram'),
+                    'phone': phone,
+                    'comment': f"Контакт создан автоматически из Telegram. ID: {user_telegram_id}"
+                }
+                
+                # Если есть компания, привязываем к ней
+                if 'company_id' in kwargs and kwargs['company_id']:
+                    contact_data['company_id'] = kwargs['company_id']
+                
+                # Создаем контакт
+                new_contact = await self.create_contact(**contact_data)
+                
+                if new_contact and 'id' in new_contact:
+                    client['contact'] = {'id': new_contact['id']}
+                    logger.info(f"✅ Привязываем новый контакт к заявке: contact_id = {new_contact['id']}")
+                    # Также добавляем его в kwargs для дальнейшего использования
+                    kwargs['contact_id'] = new_contact['id']
+                    logger.info(f"✅ Добавляем новый contact_id в параметры: {kwargs['contact_id']}")
+                else:
+                    logger.error(f"❌ Не удалось создать контакт: {new_contact}")
         
         # Добавляем компанию, если указана
         if 'company_id' in kwargs and kwargs['company_id']:
@@ -301,10 +328,41 @@ class OkdeskAPI:
                     data['author_type'] = 'contact'
                     logger.info(f"✅ Используем найденный контакт: author_id={contact['id']}, author_type=contact")
                 else:
-                    # Если контакт не найден, используем системного пользователя
-                    data['author_id'] = 5  # ID Manager
-                    data['author_type'] = 'employee'
-                    logger.warning(f"⚠️ Контакт не найден. Используем fallback: author_id=5, author_type=employee")
+                    # Если контакт не найден, пробуем создать новый
+                    logger.info(f"❗ Контакт не найден по телефону. Пробуем создать новый контакт.")
+                    
+                    # Получаем информацию о заявке для определения компании
+                    issue_info = await self.get_issue(issue_id)
+                    company_id = None
+                    
+                    if issue_info and 'client' in issue_info and issue_info['client'].get('company'):
+                        company_id = issue_info['client']['company'].get('id')
+                        logger.info(f"✅ Найдена компания для нового контакта: company_id={company_id}")
+                    
+                    # Готовим данные для создания контакта
+                    contact_data = {
+                        'first_name': 'Пользователь',
+                        'last_name': 'Telegram',
+                        'phone': client_phone,
+                        'comment': f"Контакт создан автоматически из Telegram при добавлении комментария к заявке #{issue_id}"
+                    }
+                    
+                    # Если нашли компанию, привязываем к ней
+                    if company_id:
+                        contact_data['company_id'] = company_id
+                    
+                    # Создаем контакт
+                    new_contact = await self.create_contact(**contact_data)
+                    
+                    if new_contact and 'id' in new_contact:
+                        data['author_id'] = new_contact['id']
+                        data['author_type'] = 'contact'
+                        logger.info(f"✅ Создан новый контакт и используется как автор: author_id={new_contact['id']}")
+                    else:
+                        # Если создание контакта не удалось, используем системного пользователя
+                        data['author_id'] = 5  # ID Manager
+                        data['author_type'] = 'employee'
+                        logger.warning(f"⚠️ Не удалось создать контакт. Используем fallback: author_id=5, author_type=employee")
             else:
                 # Используем системного пользователя как fallback
                 data['author_id'] = 5  # ID Manager из ваших логов
@@ -498,7 +556,8 @@ class OkdeskAPI:
         """Алиас метода find_contact_by_phone для обратной совместимости"""
         return await self.find_contact_by_phone(phone)
     
-    async def create_comment(self, issue_id: int, content: str, contact_id: int = None, phone: str = None, is_public: bool = True) -> Dict:
+    async def create_comment(self, issue_id: int, content: str, contact_id: int = None, phone: str = None, 
+                        is_public: bool = True, full_name: str = None, telegram_id: str = None) -> Dict:
         """
         Создать комментарий к заявке с автоматической привязкой автора
         
@@ -508,6 +567,8 @@ class OkdeskAPI:
             contact_id: ID контакта в Okdesk (имеет приоритет над phone)
             phone: Телефон для поиска контакта
             is_public: Публичный комментарий (по умолчанию True)
+            full_name: Полное имя пользователя (для создания контакта при необходимости)
+            telegram_id: Telegram ID пользователя (для создания контакта при необходимости)
         
         Returns:
             Dict: Данные созданного комментария
@@ -530,7 +591,39 @@ class OkdeskAPI:
                 author_type = 'contact'
                 logger.info(f"✅ Нашли контакт по телефону: id={contact['id']}, name={contact.get('name')}")
             else:
-                logger.warning(f"⚠️ Не удалось найти контакт по телефону: {phone}")
+                # Если контакт не найден, пробуем получить информацию о заявке
+                issue_info = await self.get_issue(issue_id)
+                company_id = None
+                
+                # Проверяем, привязана ли заявка к компании
+                if issue_info and 'client' in issue_info and issue_info['client'].get('company'):
+                    company_id = issue_info['client']['company'].get('id')
+                    logger.info(f"✅ Нашли компанию для создания контакта: {company_id}")
+                
+                # Подготавливаем данные для создания контакта
+                first_name = full_name.split()[0] if full_name and ' ' in full_name else 'Пользователь'
+                last_name = ' '.join(full_name.split()[1:]) if full_name and len(full_name.split()) > 1 else 'Telegram'
+                
+                contact_data = {
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'phone': phone,
+                    'comment': f"Создан автоматически из Telegram для комментирования заявки #{issue_id}. Telegram ID: {telegram_id}"
+                }
+                
+                # Привязываем к компании, если она найдена
+                if company_id:
+                    contact_data['company_id'] = company_id
+                
+                logger.info(f"🔧 Создаем новый контакт с данными: {contact_data}")
+                new_contact = await self.create_contact(**contact_data)
+                
+                if new_contact and 'id' in new_contact:
+                    author_id = new_contact['id']
+                    author_type = 'contact'
+                    logger.info(f"✅ Создан новый контакт: id={new_contact['id']}, name={new_contact.get('name')}")
+                else:
+                    logger.warning(f"⚠️ Не удалось создать контакт: {new_contact}")
         
         # Вызываем основной метод add_comment с нужными параметрами
         return await self.add_comment(
@@ -539,6 +632,7 @@ class OkdeskAPI:
             is_public=is_public,
             author_id=author_id,
             author_type=author_type,
+            author_name=full_name,
             client_phone=phone if not contact_id else None
         )
     
