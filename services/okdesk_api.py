@@ -694,7 +694,16 @@ class OkdeskAPI:
         
         # Добавляем ИНН, если он указан
         if inn and inn.strip():
-            data['inn'] = inn.strip()
+            # Используем правильное имя параметра: inn_company, а не inn
+            data['inn_company'] = inn.strip()
+            # Также добавим в дополнительные параметры как "ИНН Компании"
+            if 'parameters' not in data:
+                data['parameters'] = []
+            data['parameters'].append({
+                'code': 'INN',
+                'name': 'ИНН Компании',
+                'value': inn.strip()
+            })
         
         # Добавляем дополнительные поля
         for field in ['phone', 'email', 'address', 'type_id', 'web_site', 'comment']:
