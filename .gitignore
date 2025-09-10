@@ -64,5 +64,25 @@ check_*.py
 diagnose_*.py
 final_check.py
 
+# Временные файлы отладки и разработки
+temp_*.*
+*_temp.*
+extract_*.py
+find_company_by_inn.txt
+fixed_company_search.py
+updated_*.py
+*_update.py
+get_companies_method.py
+get_company_data.py
+okdesk_api_updated.py
+
+# Временные файлы исправлений и отчеты
+fix_company_id_fields.py
+check_and_fix_company_id.ps1
+check_and_fix_company_id.sh
+INN_SEARCH_FIX_REPORT.md
+INN_SEARCH_FIX.md
+OKDESK_COMPANY_ID_FIX.md
+
 # Docker
 .docker/

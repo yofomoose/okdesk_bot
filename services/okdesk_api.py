@@ -667,6 +667,28 @@ class OkdeskAPI:
             if field in kwargs and kwargs[field]:
                 data[field] = kwargs[field]
         
+        # Добавляем ИНН в параметры контакта, если он указан
+        if 'inn_company' in kwargs and kwargs['inn_company']:
+            inn = kwargs['inn_company']
+            
+            # Вариант 1: Как custom_parameters
+            if 'custom_parameters' not in data:
+                data['custom_parameters'] = {}
+            data['custom_parameters']['inn_company'] = inn
+            
+            # Вариант 2: Как parameters (массив объектов)
+            if 'parameters' not in data:
+                data['parameters'] = []
+            
+            data['parameters'].append({
+                'code': 'inn_company',
+                'name': 'ИНН',
+                'value': inn
+            })
+            
+            # Дополнительное поле в основных данных
+            data['inn_company'] = inn
+        
         logger.info(f"Создаем контакт с данными: {data}")
         response = await self._make_request('POST', 'contacts', data)
         return response if response else {}
@@ -694,16 +716,37 @@ class OkdeskAPI:
         
         # Добавляем ИНН, если он указан
         if inn and inn.strip():
-            # Используем правильное имя параметра: inn_company, а не inn
+            # Попробуем разные варианты передачи ИНН
+            
+            # Вариант 1: Как custom_parameters
+            if 'custom_parameters' not in data:
+                data['custom_parameters'] = {}
+            data['custom_parameters']['inn_company'] = inn.strip()
+            data['custom_parameters']['ИНН Компании'] = inn.strip()
+            
+            # Вариант 2: В корне запроса
             data['inn_company'] = inn.strip()
-            # Также добавим в дополнительные параметры как "ИНН Компании"
+            data['ИНН Компании'] = inn.strip()
+            
+            # Вариант 3: Как parameters (массив объектов)
             if 'parameters' not in data:
                 data['parameters'] = []
+            
             data['parameters'].append({
-                'code': 'INN',
+                'code': 'inn_company',
                 'name': 'ИНН Компании',
                 'value': inn.strip()
             })
+            
+            # Дополнительный вариант с другими названиями полей
+            data['parameters'].append({
+                'code': 'INN',
+                'name': 'ИНН',
+                'value': inn.strip()
+            })
+            
+            # Еще вариант для поля inn
+            data['inn'] = inn.strip()
         
         # Добавляем дополнительные поля
         for field in ['phone', 'email', 'address', 'type_id', 'web_site', 'comment']:
@@ -722,40 +765,39 @@ class OkdeskAPI:
                     from services.database import DatabaseManager
                     db = DatabaseManager('okdesk_bot.db')
                     
-                    # Получаем пользователей с этим ИНН, у которых не задан okdesk_company_id
+                    # Получаем пользователей с этим ИНН, у которых не задан company_id
                     users = db.execute(
-                        "SELECT telegram_id FROM users WHERE inn = ? AND okdesk_company_id IS NULL", 
+                        "SELECT telegram_id FROM users WHERE inn = ? AND company_id IS NULL", 
                         (inn,)
                     ).fetchall()
                     
                     for user_row in users:
                         user_id = user_row[0]
-                        # Обновляем okdesk_company_id для пользователя
+                        # Обновляем company_id для пользователя
                         db.execute(
-                            "UPDATE users SET okdesk_company_id = ? WHERE telegram_id = ?",
+                            "UPDATE users SET company_id = ? WHERE telegram_id = ?",
                             (response['id'], user_id)
                         )
-                        logger.info(f"✅ Обновлен okdesk_company_id={response['id']} для пользователя {user_id} в базе данных")
+                        logger.info(f"✅ Обновлен company_id={response['id']} для пользователя {user_id} в базе данных")
                     
                     db.commit()
                     db.close()
                 except Exception as e:
-                    logger.error(f"❌ Ошибка при обновлении okdesk_company_id в базе данных: {e}")
+                    logger.error(f"❌ Ошибка при обновлении company_id в базе данных: {e}")
                     
         return response if response else {}
     
-    async def find_company_by_inn(self, inn: str, create_if_not_found: bool = True) -> Optional[Dict]:
+    async def find_company_by_inn(self, inn: str, create_if_not_found: bool = False) -> Optional[Dict]:
         """
         Найти компанию по ИНН и сохранить её ID в базе данных для соответствующих пользователей.
-        Если компания не найдена и параметр create_if_not_found=True, то создать новую компанию.
         
         Args:
             inn: ИНН компании для поиска
-            create_if_not_found: Создавать компанию, если не найдена (по умолчанию True)
+            create_if_not_found: Создавать компанию, если не найдена (по умолчанию False)
         
         Returns:
-            Dict: Данные компании или None, если не найдена и не создана
-        """
+            Dict: Данные компании или None, если не найдена
+        """""
         try:
             if not inn or not inn.strip():
                 logger.warning("❌ ИНН не указан для поиска компании")
@@ -770,45 +812,70 @@ class OkdeskAPI:
             
             logger.info(f"🔍 Поиск компании по ИНН: {clean_inn}")
             
-            # Запрашиваем API для поиска по ИНН
-            endpoint = f"/companies?inn={clean_inn}"
-            response = await self._make_request('GET', endpoint)
+            # Используем API-запрос с правильным параметром для поиска компании по ИНН
+            logger.info(f"🔍 Выполняем поиск компании через API по параметру inn_company={clean_inn}...")
+            
+            # Делаем запрос с использованием параметра inn_company в соответствии с документацией API
+            companies = await self._make_request('GET', f"/companies/list?parameter[inn_company]={clean_inn}")
             
             # Переменная для найденной компании
             company = None
             
-            # Проверяем формат ответа и наличие компаний
-            if response:
-                # Вариант 1: ответ в виде списка компаний
-                if isinstance(response, list) and response:
-                    company = response[0]  # Берем первую найденную компанию
-                    logger.info(f"✅ Найдена компания в списке: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+            # Проверяем результаты поиска
+            if isinstance(companies, list) and companies:
+                logger.info(f"✅ Найдено {len(companies)} компаний по запросу inn_company={clean_inn}")
+                # Берем первую найденную компанию, так как ИНН должен быть уникальным
+                company = companies[0]
+                logger.info(f"✅ Выбрана компания: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+            else:
+                logger.info(f"❌ Компании с inn_company={clean_inn} не найдены через прямой API-запрос")
                 
-                # Вариант 2: ответ в виде одной компании (словарь)
-                elif isinstance(response, dict) and 'id' in response:
-                    company = response
-                    logger.info(f"✅ Найдена компания как объект: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
-            
-            # Вариант 3: Поиск по всем компаниям, если не нашли по ИНН напрямую
-            if not company:
-                logger.info(f"🔍 Не удалось найти компанию напрямую по ИНН. Пробуем получить список компаний.")
-                # Получаем список всех компаний
-                all_companies = await self._make_request('GET', "/companies")
-                if isinstance(all_companies, list):
-                    # Фильтруем компании по ИНН (ищем ИНН во всех полях)
-                    for comp in all_companies:
-                        # Проверяем ИНН непосредственно в данных компании
-                        if str(comp.get('inn', '')).strip() == clean_inn:
+                # Запасной вариант: получаем и проверяем список всех компаний
+                logger.info("🔍 Применяем запасной вариант поиска среди всех компаний...")
+                
+                companies = await self.get_companies(limit=1000)
+                
+                if isinstance(companies, list):
+                    logger.info(f"🔍 Получено {len(companies)} компаний для проверки")
+                    
+                    for comp in companies:
+                        # Логируем данные компании для отладки
+                        logger.debug(f"Проверяем компанию ID: {comp.get('id')}, Название: {comp.get('name')}")
+                        
+                        # 1. Проверяем ИНН в основных полях
+                        inn_values = [
+                            str(comp.get('inn', '')).strip(),
+                            str(comp.get('inn_company', '')).strip(),
+                            str(comp.get('legal_inn', '')).strip()
+                        ]
+                        
+                        if clean_inn in inn_values:
                             company = comp
-                            logger.info(f"✅ Найдена компания в общем списке: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+                            logger.info(f"✅ Найдена компания по основному полю ИНН: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
                             break
                         
-                        # Проверяем также в дополнительных параметрах
+                        # 2. Проверяем ИНН в дополнительных параметрах
                         if 'parameters' in comp:
+                            found_in_params = False
                             for param in comp.get('parameters', []):
-                                if param.get('code') in ['inn', 'INN', 'ИНН'] and param.get('value') == clean_inn:
+                                if param.get('code') in ['inn', 'INN', 'ИНН', 'inn_company', '0001'] and str(param.get('value', '')).strip() == clean_inn:
                                     company = comp
-                                    logger.info(f"✅ Найдена компания по параметру ИНН: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+                                    logger.info(f"✅ Найдена компания по параметру {param.get('code')}: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
+                                    found_in_params = True
+                                    break
+                            
+                            if found_in_params:
+                                break
+                        
+                        # 3. Проверяем в custom_parameters, если они есть
+                        if 'custom_parameters' in comp:
+                            custom_params = comp.get('custom_parameters', {})
+                            inn_fields = ['inn', 'INN', 'ИНН', 'inn_company']
+                            
+                            for field in inn_fields:
+                                if field in custom_params and str(custom_params[field]).strip() == clean_inn:
+                                    company = comp
+                                    logger.info(f"✅ Найдена компания по custom_parameters.{field}: {company.get('name', 'Без названия')} (ID: {company.get('id')})")
                                     break
             
             # Если нашли компанию, обновим связи в базе данных
@@ -820,25 +887,25 @@ class OkdeskAPI:
                     from services.database import DatabaseManager
                     db = DatabaseManager('okdesk_bot.db')
                     
-                    # Получаем пользователей с этим ИНН, у которых не задан okdesk_company_id
+                    # Получаем пользователей с этим ИНН, у которых не задан company_id
                     users = db.execute(
-                        "SELECT telegram_id FROM users WHERE inn = ? AND okdesk_company_id IS NULL", 
+                        "SELECT telegram_id FROM users WHERE inn_company = ? AND company_id IS NULL", 
                         (clean_inn,)
                     ).fetchall()
                     
                     for user_row in users:
                         user_id = user_row[0]
-                        # Обновляем okdesk_company_id для пользователя
+                        # Обновляем company_id для пользователя
                         db.execute(
-                            "UPDATE users SET okdesk_company_id = ? WHERE telegram_id = ?",
+                            "UPDATE users SET company_id = ? WHERE telegram_id = ?",
                             (company['id'], user_id)
                         )
-                        logger.info(f"✅ Обновлен okdesk_company_id={company['id']} для пользователя {user_id} в базе данных")
+                        logger.info(f"✅ Обновлен company_id={company['id']} для пользователя {user_id} в базе данных")
                     
                     db.commit()
                     db.close()
                 except Exception as e:
-                    logger.error(f"❌ Ошибка при обновлении okdesk_company_id в базе данных: {e}")
+                    logger.error(f"❌ Ошибка при обновлении company_id в базе данных: {e}")
                 
                 return company
             
@@ -873,6 +940,47 @@ class OkdeskAPI:
     async def search_company_by_inn(self, inn: str) -> Optional[Dict]:
         """Алиас метода find_company_by_inn для обратной совместимости"""
         return await self.find_company_by_inn(inn)
+    
+    async def get_companies(self, limit: int = 100) -> List[Dict]:
+        """
+        Получить список компаний с детальной информацией.
+        
+        Args:
+            limit: Ограничение на количество компаний (по умолчанию 100)
+        
+        Returns:
+            List[Dict]: Список словарей с данными компаний
+        """
+        try:
+            logger.info(f"Получаем список компаний (лимит: {limit})...")
+            
+            # Запрашиваем список всех компаний
+            all_companies_response = await self._make_request('GET', f"/companies?per_page={limit}")
+            
+            if not all_companies_response or not isinstance(all_companies_response, list):
+                logger.warning(f"Не удалось получить список компаний или получен пустой список")
+                # Если API вернул пустой ответ, проверяем структуру с типом по умолчанию
+                return []
+            
+            # Получаем детальную информацию для каждой компании
+            companies_with_details = []
+            for company in all_companies_response:
+                if 'id' in company:
+                    company_id = company['id']
+                    # Запрашиваем детали по каждой компании
+                    company_details = await self._make_request('GET', f"/companies/{company_id}")
+                    if company_details:
+                        companies_with_details.append(company_details)
+                    else:
+                        # Если не удалось получить детали, добавляем базовую информацию
+                        companies_with_details.append(company)
+            
+            logger.info(f"Успешно получено {len(companies_with_details)} компаний с детальной информацией")
+            return companies_with_details
+        
+        except Exception as e:
+            logger.error(f"Ошибка при получении списка компаний: {e}")
+            return []
     
     async def create_comment(self, issue_id: int, content: str, contact_id: int = None, phone: str = None, 
                         is_public: bool = True, full_name: str = None, telegram_id: str = None) -> Dict:
