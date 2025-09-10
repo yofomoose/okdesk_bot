@@ -398,58 +398,69 @@ class OkdeskAPI:
             data['author_type'] = author_type
             logger.info(f"✅ Используем переданные параметры: author_id={author_id}, author_type={author_type}")
         else:
-            logger.info(f"⚠️ Не указаны author_id и/или author_type")
+            logger.info(f"⚠️ Не указаны author_id и/или author_type - будем искать или создавать контакт")
             
-            # Пытаемся найти контакт по телефону, если предоставлен client_phone
+            # Пытаемся найти или создать контакт
+            contact_id = None
+            
+            # Пробуем сначала найти контакт по переданному телефону
             if client_phone:
                 logger.info(f"🔍 Пытаемся найти контакт по телефону: {client_phone}")
                 contact = await self.find_contact_by_phone(client_phone)
                 
                 if contact and 'id' in contact:
-                    data['author_id'] = contact['id']
-                    data['author_type'] = 'contact'
-                    logger.info(f"✅ Используем найденный контакт: author_id={contact['id']}, author_type=contact")
-                else:
-                    # Если контакт не найден, пробуем создать новый
-                    logger.info(f"❗ Контакт не найден по телефону. Пробуем создать новый контакт.")
-                    
-                    # Получаем информацию о заявке для определения компании
-                    issue_info = await self.get_issue(issue_id)
-                    company_id = None
-                    
-                    if issue_info and 'client' in issue_info and issue_info['client'].get('company'):
-                        company_id = issue_info['client']['company'].get('id')
-                        logger.info(f"✅ Найдена компания для нового контакта: company_id={company_id}")
-                    
-                    # Готовим данные для создания контакта
-                    contact_data = {
-                        'first_name': 'Пользователь',
-                        'last_name': 'Telegram',
-                        'phone': client_phone,
-                        'comment': f"Контакт создан автоматически из Telegram при добавлении комментария к заявке #{issue_id}"
-                    }
-                    
-                    # Если нашли компанию, привязываем к ней
-                    if company_id:
-                        contact_data['company_id'] = company_id
-                    
-                    # Создаем контакт
-                    new_contact = await self.create_contact(**contact_data)
-                    
-                    if new_contact and 'id' in new_contact:
-                        data['author_id'] = new_contact['id']
-                        data['author_type'] = 'contact'
-                        logger.info(f"✅ Создан новый контакт и используется как автор: author_id={new_contact['id']}")
-                    else:
-                        # Если создание контакта не удалось, используем системного пользователя
-                        data['author_id'] = 5  # ID Manager
-                        data['author_type'] = 'employee'
-                        logger.warning(f"⚠️ Не удалось создать контакт. Используем fallback: author_id=5, author_type=employee")
+                    contact_id = contact['id']
+                    logger.info(f"✅ Найден контакт по телефону: ID={contact_id}")
+            
+            # Если контакт не найден по телефону, пытаемся найти по заявке
+            if not contact_id:
+                logger.info(f"🔍 Пытаемся найти контакт через данные заявки: {issue_id}")
+                issue_info = await self.get_issue(issue_id)
+                
+                if issue_info and 'client' in issue_info and issue_info['client'].get('contact'):
+                    contact_id = issue_info['client']['contact'].get('id')
+                    if contact_id:
+                        logger.info(f"✅ Найден контакт через заявку: ID={contact_id}")
+                
+                # Получаем информацию о компании для дальнейшего использования
+                company_id = None
+                if issue_info and 'client' in issue_info and issue_info['client'].get('company'):
+                    company_id = issue_info['client']['company'].get('id')
+                    logger.info(f"✅ Найдена компания через заявку: ID={company_id}")
+            
+            # Если все еще не нашли контакт и есть телефон, создаем новый
+            if not contact_id and client_phone:
+                logger.info(f"❗ Контакт не найден. Создаем новый контакт.")
+                
+                # Готовим данные для создания контакта
+                contact_data = {
+                    'first_name': author_name.split()[0] if author_name else 'Пользователь',
+                    'last_name': ' '.join(author_name.split()[1:]) if author_name and len(author_name.split()) > 1 else 'Telegram',
+                    'phone': client_phone,
+                    'comment': f"Контакт создан автоматически из Telegram при добавлении комментария к заявке #{issue_id}"
+                }
+                
+                # Если нашли компанию, привязываем к ней
+                if company_id:
+                    contact_data['company_id'] = company_id
+                
+                # Создаем контакт
+                new_contact = await self.create_contact(**contact_data)
+                
+                if new_contact and 'id' in new_contact:
+                    contact_id = new_contact['id']
+                    logger.info(f"✅ Создан новый контакт: ID={contact_id}")
+            
+            # Используем найденный или созданный контакт
+            if contact_id:
+                data['author_id'] = contact_id
+                data['author_type'] = 'contact'
+                logger.info(f"✅ Используем контакт как автора: author_id={contact_id}, author_type=contact")
             else:
-                # Используем системного пользователя как fallback
+                # Если не удалось найти или создать контакт, используем системного пользователя
                 data['author_id'] = 5  # ID Manager из ваших логов
                 data['author_type'] = 'employee'
-                logger.warning(f"⚠️ Используем fallback: author_id=5, author_type=employee")
+                logger.warning(f"⚠️ Не удалось найти или создать контакт. Используем системного пользователя: author_id=5, author_type=employee")
         
         if author_name:
             data['author_name'] = author_name
