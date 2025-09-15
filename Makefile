@@ -29,6 +29,8 @@ help: ## Показать справку по командам
 	@echo "$(YELLOW)Примеры использования:$(RESET)"
 	@echo "  make update           # Обновить код и перезапустить"
 	@echo "  make logs             # Посмотреть логи"
+	@echo "  make test-portal      # Тестировать портальную интеграцию"
+	@echo "  make update-urls      # Обновить ссылки на портал"
 	@echo "  make db-status        # Проверить PostgreSQL"
 	@echo "  make db-connect       # Подключиться к БД внутри контейнера"
 	@echo "  make db-connect-external # Подключиться к БД извне (порт 5433)"
@@ -44,8 +46,16 @@ update: ## Полное обновление проекта (git pull + rebuild 
 	docker-compose -f $(COMPOSE_FILE) build --no-cache
 	@echo "$(YELLOW)🚀 Запускаем обновленные контейнеры...$(RESET)"
 	docker-compose -f $(COMPOSE_FILE) up -d
+	@echo "$(YELLOW)⏳ Ожидаем запуска контейнеров...$(RESET)"
+	sleep 10
+	@echo "$(YELLOW)🔗 Обновляем ссылки на портал для существующих заявок...$(RESET)"
+	@docker exec $(PROJECT_NAME)_okdesk_bot_1 python update_urls.py || echo "$(YELLOW)⚠️ Обновление URL не удалось, но это не критично$(RESET)"
 	@echo "$(GREEN)✅ Обновление завершено!$(RESET)"
 	@make status
+
+update-urls: ## Обновить ссылки на портал для существующих заявок
+	@echo "$(BOLD)$(BLUE)🔗 Обновление ссылок на портал...$(RESET)"
+	@docker exec $(PROJECT_NAME)_okdesk_bot_1 python update_urls.py
 
 deploy: ## Быстрое развертывание без пересборки
 	@echo "$(BOLD)$(BLUE)🚀 Быстрое развертывание...$(RESET)"
@@ -108,6 +118,13 @@ test: ## Запустить тесты и диагностику
 	@echo "$(BOLD)3. 🔗 Тест Okdesk API:$(RESET)"
 	@curl -s "https://yapomogu55.okdesk.ru/api/v1/issues?limit=1&api_token=$$(grep OKDESK_API_TOKEN .env | cut -d'=' -f2)" \
 		| jq -r 'if type == "array" then "✅ API работает" else "❌ API ошибка" end' 2>/dev/null || echo "$(RED)❌ Okdesk API недоступен$(RESET)"
+	@echo ""
+	@echo "$(BOLD)4. 🌐 Тест портальной интеграции:$(RESET)"
+	@docker exec $(PROJECT_NAME)_okdesk_bot_1 python update_urls.py test || echo "$(RED)❌ Тест портальной интеграции провален$(RESET)"
+
+test-portal: ## Тестировать только портальную интеграцию
+	@echo "$(BOLD)$(BLUE)🌐 Тест портальной интеграции...$(RESET)"
+	@docker exec $(PROJECT_NAME)_okdesk_bot_1 python update_urls.py test
 
 test-comment: ## Тест создания комментария
 	@echo "$(BOLD)$(BLUE)💬 Тест создания комментария...$(RESET)"

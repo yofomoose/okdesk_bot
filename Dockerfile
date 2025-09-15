@@ -32,7 +32,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
 # Копируем только необходимые файлы приложения
-COPY bot.py webhook_server.py config.py ./
+COPY bot.py webhook_server.py config.py update_urls.py ./
 COPY handlers/ ./handlers/
 COPY services/ ./services/
 COPY models/ ./models/
