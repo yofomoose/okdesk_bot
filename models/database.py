@@ -54,6 +54,10 @@ class Issue(Base):
     okdesk_url = Column(String, nullable=True)
     issue_number = Column(String, nullable=True)
     
+    # Оценка качества работы (1-5 звезд)
+    rating = Column(Integer, nullable=True)
+    rating_comment = Column(Text, nullable=True)
+    
     # Временные метки
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -199,5 +199,44 @@ full-cycle: ## Полный цикл обновления (git commit + push + d
 	@make test
 	@echo "$(GREEN)✅ Полный цикл завершен!$(RESET)"
 
+# Docker оптимизация
+build-fast: ## Быстрая сборка с кэшированием
+	@echo "$(BOLD)$(BLUE)⚡ Быстрая сборка с кэшированием...$(RESET)"
+	docker-compose -f $(COMPOSE_FILE) build
+
+build-no-cache: ## Полная пересборка без кэша
+	@echo "$(BOLD)$(BLUE)🔄 Полная пересборка без кэша...$(RESET)"
+	docker-compose -f $(COMPOSE_FILE) build --no-cache
+
+build-parallel: ## Параллельная сборка
+	@echo "$(BOLD)$(BLUE)🔄 Параллельная сборка...$(RESET)"
+	DOCKER_BUILDKIT=1 docker-compose -f $(COMPOSE_FILE) build --parallel
+
+rebuild-bot: ## Пересборка только бота
+	@echo "$(BOLD)$(BLUE)🤖 Пересборка только бота...$(RESET)"
+	docker-compose -f $(COMPOSE_FILE) build --no-cache bot
+
+rebuild-webhook: ## Пересборка только webhook
+	@echo "$(BOLD)$(BLUE)🌐 Пересборка только webhook...$(RESET)"
+	docker-compose -f $(COMPOSE_FILE) build --no-cache webhook
+
+clean-images: ## Очистка неиспользуемых образов
+	@echo "$(BOLD)$(BLUE)🧹 Очистка неиспользуемых образов...$(RESET)"
+	docker image prune -f
+
+clean-build-cache: ## Очистка кэша сборки
+	@echo "$(BOLD)$(BLUE)🧹 Очистка кэша сборки...$(RESET)"
+	docker builder prune -f
+
+optimize: ## Полная оптимизация Docker
+	@echo "$(BOLD)$(BLUE)🔧 Полная оптимизация Docker...$(RESET)"
+	@echo "$(YELLOW)Остановка контейнеров...$(RESET)"
+	docker-compose -f $(COMPOSE_FILE) down
+	@echo "$(YELLOW)Очистка неиспользуемых ресурсов...$(RESET)"
+	docker system prune -f
+	@echo "$(YELLOW)Очистка кэша сборки...$(RESET)"
+	docker builder prune -f
+	@echo "$(GREEN)✅ Оптимизация завершена!$(RESET)"
+
 # Команда по умолчанию
 all: help

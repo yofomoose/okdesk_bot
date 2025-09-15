@@ -240,13 +240,46 @@ async def show_my_issues(callback: CallbackQuery):
         )
         return
     
-    keyboard_buttons = []
-    text = "📋 Ваши заявки:\n\n"
+    # Разделяем заявки на открытые и закрытые
+    open_statuses = ["opened", "in_progress", "on_hold"]
+    closed_statuses = ["resolved", "closed"]
     
-    for issue in issues[-10:]:  # Показываем последние 10 заявок
-        status_emoji = config.ISSUE_STATUS_MESSAGES.get(issue.status, issue.status)
-        text += f"#{issue.issue_number} - {issue.title}\n{status_emoji}\n\n"
+    open_issues = [issue for issue in issues if issue.status in open_statuses]
+    closed_issues = [issue for issue in issues if issue.status in closed_statuses]
+    
+    # Сортируем по дате создания (новые сверху)
+    open_issues.sort(key=lambda x: x.created_at, reverse=True)
+    closed_issues.sort(key=lambda x: x.created_at, reverse=True)
+    
+    # Показываем открытые заявки по умолчанию
+    await show_issues_list(callback, open_issues, closed_issues, "open")
+
+async def show_issues_list(callback: CallbackQuery, open_issues, closed_issues, list_type):
+    """Показать список заявок определенного типа"""
+    if list_type == "open":
+        issues = open_issues
+        title = "📋 Открытые заявки"
+        switch_button = "Показать закрытые"
+        switch_callback = "show_closed_issues"
+    else:
+        issues = closed_issues
+        title = "📋 Закрытые заявки"
+        switch_button = "Показать открытые"
+        switch_callback = "show_open_issues"
+    
+    if not issues:
+        text = f"{title}\n\nУ вас нет заявок в этом разделе."
+    else:
+        text = f"{title} ({len(issues)}):\n\n"
         
+        for issue in issues:
+            status_emoji = config.ISSUE_STATUS_MESSAGES.get(issue.status, issue.status)
+            text += f"#{issue.issue_number} - {issue.title}\n{status_emoji}\n\n"
+    
+    keyboard_buttons = []
+    
+    # Добавляем кнопки заявок (максимум 10 последних)
+    for issue in issues[:10]:
         keyboard_buttons.append([
             InlineKeyboardButton(
                 text=f"#{issue.issue_number} - {issue.title[:20]}...",
@@ -254,10 +287,62 @@ async def show_my_issues(callback: CallbackQuery):
             )
         ])
     
-    keyboard_buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
+    # Добавляем кнопки управления
+    if open_issues or closed_issues:
+        keyboard_buttons.append([
+            InlineKeyboardButton(text=switch_button, callback_data=switch_callback)
+        ])
+    
+    keyboard_buttons.append([
+        InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")
+    ])
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
     await callback.message.edit_text(text, reply_markup=keyboard)
+
+@router.callback_query(F.data == "show_open_issues")
+async def show_open_issues(callback: CallbackQuery):
+    """Показать открытые заявки"""
+    user = UserService.get_user_by_telegram_id(callback.from_user.id)
+    if not user:
+        await callback.answer("❌ Пользователь не найден")
+        return
+    
+    issues = IssueService.get_user_issues(user.telegram_id)
+    
+    open_statuses = ["opened", "in_progress", "on_hold"]
+    closed_statuses = ["resolved", "closed"]
+    
+    open_issues = [issue for issue in issues if issue.status in open_statuses]
+    closed_issues = [issue for issue in issues if issue.status in closed_statuses]
+    
+    open_issues.sort(key=lambda x: x.created_at, reverse=True)
+    closed_issues.sort(key=lambda x: x.created_at, reverse=True)
+    
+    await show_issues_list(callback, open_issues, closed_issues, "open")
+
+@router.callback_query(F.data == "show_closed_issues")
+async def show_closed_issues(callback: CallbackQuery):
+    """Показать закрытые заявки"""
+    user = UserService.get_user_by_telegram_id(callback.from_user.id)
+    if not user:
+        await callback.answer("❌ Пользователь не найден")
+        return
+    
+    issues = IssueService.get_user_issues(user.telegram_id)
+    
+    open_statuses = ["opened", "in_progress", "on_hold"]
+    closed_statuses = ["resolved", "closed"]
+    
+    open_issues = [issue for issue in issues if issue.status in open_statuses]
+    closed_issues = [issue for issue in issues if issue.status in closed_statuses]
+    
+    open_issues.sort(key=lambda x: x.created_at, reverse=True)
+    closed_issues.sort(key=lambda x: x.created_at, reverse=True)
+    
+    await show_issues_list(callback, open_issues, closed_issues, "closed")
 
 @router.callback_query(F.data.startswith("view_issue_"))
 async def view_issue(callback: CallbackQuery):
@@ -500,6 +585,82 @@ async def check_status(callback: CallbackQuery):
             await okdesk_api.close()
     finally:
         db.close()
+
+@router.callback_query(F.data.startswith("rate_"))
+async def handle_rating(callback: CallbackQuery):
+    """Обработка оценки качества работы"""
+    try:
+        # Парсим callback_data: rate_{rating}_{issue_id}
+        parts = callback.data.split("_")
+        if len(parts) != 3:
+            await callback.answer("❌ Неверный формат оценки")
+            return
+        
+        rating = int(parts[1])
+        issue_id = int(parts[2])
+        
+        # Получаем заявку из БД
+        db = SessionLocal()
+        try:
+            issue = db.query(Issue).filter(Issue.id == issue_id).first()
+            if not issue:
+                await callback.answer("❌ Заявка не найдена")
+                return
+            
+            # Сохраняем оценку в комментарий к заявке
+            rating_text = "⭐" * rating
+            comment_text = f"Клиент оценил работу: {rating_text} ({rating}/5)"
+            
+            # Сохраняем оценку в нашей БД
+            issue.rating = rating
+            issue.rating_comment = comment_text
+            db.commit()
+            
+            # Отправляем оценку через API Okdesk
+            okdesk_api = OkdeskAPI()
+            try:
+                # Отправляем оценку (теперь всегда через комментарий)
+                rating_response = await okdesk_api.rate_issue(issue.okdesk_issue_id, rating, comment_text)
+                
+                if rating_response.get('success'):
+                    logger.info(f"✅ Оценка {rating}/5 успешно сохранена в Okdesk для заявки {issue.okdesk_issue_id} через {rating_response.get('method')}")
+                    success_message = f"✅ Спасибо за оценку: {'⭐' * rating}"
+                else:
+                    logger.warning(f"⚠️ Не удалось сохранить оценку в Okdesk: {rating_response.get('error', 'Неизвестная ошибка')}")
+                    success_message = f"✅ Оценка сохранена локально: {'⭐' * rating}"
+                
+                await callback.answer(success_message)
+                
+                # Обновляем сообщение с благодарностью
+                thank_message = (
+                    f"🌟 Спасибо за вашу оценку!\n\n"
+                    f"📝 Заявка #{issue.issue_number}\n"
+                    f"⭐ Ваша оценка: {'⭐' * rating} ({rating}/5)\n\n"
+                    f"💬 Оценка сохранена в комментариях к заявке в Okdesk.\n"
+                    f"Мы рады, что смогли помочь вам!"
+                )
+                
+                await callback.message.edit_text(
+                    thank_message,
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
+                        [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
+                        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+                    ])
+                )
+                
+            except Exception as e:
+                logger.error(f"Ошибка при отправке оценки в Okdesk: {e}")
+                await callback.answer("❌ Ошибка при сохранении оценки")
+            finally:
+                await okdesk_api.close()
+                
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Ошибка при обработке оценки: {e}")
+        await callback.answer("❌ Произошла ошибка")
 
 @router.callback_query(F.data == "profile")
 async def show_profile(callback: CallbackQuery):

@@ -231,6 +231,7 @@ async def handle_status_changed(data: Dict[str, Any]):
 async def notify_user_status_change(issue, new_status: str, old_status: str = None):
     """Уведомление пользователя о смене статуса"""
     from bot import bot  # Импортируем бота
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     
     status_text = config.ISSUE_STATUS_MESSAGES.get(new_status, new_status)
     
@@ -244,13 +245,42 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
         old_status_text = config.ISSUE_STATUS_MESSAGES.get(old_status, old_status)
         message += f"\n⬅️ Предыдущий статус: {old_status_text}"
     
+    # Создаем клавиатуру
+    keyboard_buttons = []
+    
+    # Если статус изменился на "resolved" (решена), добавляем запрос оценки качества
+    if new_status == "resolved":
+        message += "\n\n⭐ Пожалуйста, оцените качество выполненной работы:"
+        keyboard_buttons.extend([
+            [InlineKeyboardButton(text="⭐⭐⭐⭐⭐ Отлично", callback_data=f"rate_5_{issue.id}")],
+            [InlineKeyboardButton(text="⭐⭐⭐⭐ Хорошо", callback_data=f"rate_4_{issue.id}")],
+            [InlineKeyboardButton(text="⭐⭐⭐ Нормально", callback_data=f"rate_3_{issue.id}")],
+            [InlineKeyboardButton(text="⭐⭐ Плохо", callback_data=f"rate_2_{issue.id}")],
+            [InlineKeyboardButton(text="⭐ Ужасно", callback_data=f"rate_1_{issue.id}")]
+        ])
+    
+    # Добавляем стандартные кнопки
+    keyboard_buttons.append([
+        InlineKeyboardButton(text="🔗 Открыть заявку", url=issue.okdesk_url),
+        InlineKeyboardButton(text="💬 Добавить комментарий", callback_data=f"add_comment_{issue.id}")
+    ])
+    
+    keyboard_buttons.append([
+        InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")
+    ])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    
     try:
         await bot.send_message(
             chat_id=issue.telegram_user_id,
-            text=message
+            text=message,
+            reply_markup=keyboard
         )
+        print(f"✅ Уведомление о смене статуса отправлено пользователю {issue.telegram_user_id}")
     except Exception as e:
-        print(f"Failed to send status notification: {e}")
+        print(f"❌ Failed to send status notification: {e}")
 
 async def notify_user_new_comment(issue, content: str, author: Dict):
     """Уведомление пользователя о новом комментарии"""

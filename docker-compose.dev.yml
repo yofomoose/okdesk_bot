@@ -1,15 +1,16 @@
 version: '3.8'
 
+# Docker Compose для режима разработки
+# Использование: docker-compose -f docker-compose.dev.yml up
+
 services:
-  # Telegram Bot
+  # Telegram Bot (режим разработки)
   bot:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        BUILD_DATE: ${BUILD_DATE:-$(date +%Y%m%d_%H%M%S)}
-        GIT_COMMIT: ${GIT_COMMIT:-unknown}
-    container_name: okdesk_bot
+      target: development
+    container_name: okdesk_bot_dev
     command: python bot.py
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
@@ -19,32 +20,32 @@ services:
       - WEBHOOK_URL=${WEBHOOK_URL}
       - WEBHOOK_PATH=/okdesk-webhook
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
-      - BUILD_DATE=${BUILD_DATE}
-      - GIT_COMMIT=${GIT_COMMIT}
+      - PYTHONPATH=/app
     volumes:
+      # Монтируем исходный код для hot reload
+      - .:/app:rw
       - ./data:/app/data:rw
       - ./logs:/app/logs:rw
+      # Исключаем node_modules и другие ненужные директории
+      - /app/__pycache__
+      - /app/*.pyc
+      - /app/.git
     restart: unless-stopped
     depends_on:
       - webhook
     networks:
       - okdesk_network
+    # Отключаем healthcheck в режиме разработки для скорости
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://webhook:8000/', timeout=5)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      disable: true
 
-  # Webhook Server
+  # Webhook Server (режим разработки)
   webhook:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        BUILD_DATE: ${BUILD_DATE:-$(date +%Y%m%d_%H%M%S)}
-        GIT_COMMIT: ${GIT_COMMIT:-unknown}
-    container_name: okdesk_webhook
+      target: development
+    container_name: okdesk_webhook_dev
     command: python webhook_server.py
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
@@ -56,26 +57,25 @@ services:
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
       - HOST=0.0.0.0
       - PORT=8000
-      - BUILD_DATE=${BUILD_DATE}
-      - GIT_COMMIT=${GIT_COMMIT}
+      - PYTHONPATH=/app
     ports:
       - "8000:8000"
     volumes:
+      # Монтируем исходный код для hot reload
+      - .:/app:rw
       - ./data:/app/data:rw
       - ./logs:/app/logs:rw
+      # Исключаем ненужные файлы
+      - /app/__pycache__
+      - /app/*.pyc
+      - /app/.git
     restart: unless-stopped
     networks:
       - okdesk_network
+    # Отключаем healthcheck в режиме разработки
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      disable: true
 
 networks:
   okdesk_network:
     driver: bridge
-
-volumes:
-  okdesk_data:
