@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -18,7 +18,7 @@ class User(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
-    telegram_id = Column(Integer, unique=True, index=True, nullable=False)
+    telegram_id = Column(BigInteger, unique=True, index=True, nullable=False)
     username = Column(String, nullable=True)
     user_type = Column(String, nullable=False)  # "physical" или "legal"
     
@@ -43,7 +43,7 @@ class Issue(Base):
     __tablename__ = "issues"
     
     id = Column(Integer, primary_key=True, index=True)
-    telegram_user_id = Column(Integer, nullable=False)
+    telegram_user_id = Column(BigInteger, nullable=False)
     okdesk_issue_id = Column(Integer, nullable=False)
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
@@ -69,7 +69,7 @@ class Comment(Base):
     id = Column(Integer, primary_key=True, index=True)
     issue_id = Column(Integer, nullable=False)  # ID заявки в нашей БД
     okdesk_comment_id = Column(Integer, nullable=True)  # ID комментария в Okdesk
-    telegram_user_id = Column(Integer, nullable=False)
+    telegram_user_id = Column(BigInteger, nullable=False)
     content = Column(Text, nullable=False)
     is_from_okdesk = Column(Boolean, default=False)  # Комментарий пришел из Okdesk
     
