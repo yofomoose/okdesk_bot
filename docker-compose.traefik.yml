@@ -12,7 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"  # Expose for external access
+      - "5433:5432"  # Expose on port 5433 to avoid conflict
     networks:
       - okdesk_network
 

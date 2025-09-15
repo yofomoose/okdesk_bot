@@ -27,11 +27,12 @@ help: ## Показать справку по командам
 	@grep -E '^(db-|backup|restore):.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "$(BLUE)%-20s$(RESET) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)Примеры использования:$(RESET)"
-	@echo "  make update        # Обновить код и перезапустить"
-	@echo "  make logs          # Посмотреть логи"
-	@echo "  make db-status     # Проверить PostgreSQL"
-	@echo "  make backup        # Создать бэкап БД"
-	@echo "  make test          # Запустить тесты"
+	@echo "  make update           # Обновить код и перезапустить"
+	@echo "  make logs             # Посмотреть логи"
+	@echo "  make db-status        # Проверить PostgreSQL"
+	@echo "  make db-connect       # Подключиться к БД внутри контейнера"
+	@echo "  make db-connect-external # Подключиться к БД извне (порт 5433)"
+	@echo "  make backup           # Создать бэкап БД"
 
 update: ## Полное обновление проекта (git pull + rebuild + restart)
 	@echo "$(BOLD)$(BLUE)🔄 Начинаем полное обновление проекта...$(RESET)"
@@ -240,9 +241,14 @@ optimize: ## Полная оптимизация Docker
 	@echo "$(GREEN)✅ Оптимизация завершена!$(RESET)"
 
 # PostgreSQL команды
-db-connect: ## Подключиться к PostgreSQL базе данных
-	@echo "$(BOLD)$(BLUE)🗄️ Подключение к PostgreSQL...$(RESET)"
+db-connect: ## Подключиться к PostgreSQL базе данных (порт 5433)
+	@echo "$(BOLD)$(BLUE)🗄️ Подключение к PostgreSQL (порт 5433)...$(RESET)"
 	docker exec -it $(PROJECT_NAME)_postgres_1 psql -U okdesk_user -d okdesk_bot
+
+db-connect-external: ## Подключиться к PostgreSQL извне (через порт 5433)
+	@echo "$(BOLD)$(BLUE)🌐 Внешнее подключение к PostgreSQL (localhost:5433)...$(RESET)"
+	@echo "$(YELLOW)Пароль: changeme123$(RESET)"
+	psql -h localhost -p 5433 -U okdesk_user -d okdesk_bot
 
 db-shell: ## Открыть PostgreSQL shell
 	@echo "$(BOLD)$(BLUE)🐚 PostgreSQL Shell...$(RESET)"
