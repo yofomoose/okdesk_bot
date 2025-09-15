@@ -268,15 +268,17 @@ class OkdeskAPI:
                     # Если указан telegram_id, обновляем запись пользователя в базе данных
                     elif user_telegram_id:
                         try:
-                            from services.database import DatabaseManager
-                            db = DatabaseManager('okdesk_bot.db')
-                            db.execute(
-                                "UPDATE users SET okdesk_contact_id = ? WHERE telegram_id = ?",
-                                (new_contact['id'], user_telegram_id)
-                            )
-                            db.commit()
-                            logger.info(f"✅ Обновлен okdesk_contact_id={new_contact['id']} для пользователя {user_telegram_id} в базе данных")
-                            db.close()
+                            from database.crud import UserService
+                            user = UserService.get_user_by_telegram_id(user_telegram_id)
+                            if user:
+                                user.okdesk_contact_id = new_contact['id']
+                                # Commit changes using SQLAlchemy session
+                                from models.database import SessionLocal
+                                db_session = SessionLocal()
+                                db_session.merge(user)
+                                db_session.commit()
+                                db_session.close()
+                                logger.info(f"✅ Обновлен okdesk_contact_id={new_contact['id']} для пользователя {user_telegram_id} в базе данных")
                         except Exception as e:
                             logger.error(f"❌ Ошибка при обновлении okdesk_contact_id в базе данных: {e}")
                 else:
@@ -300,15 +302,17 @@ class OkdeskAPI:
                 # Если есть user_telegram_id, обновляем okdesk_company_id в базе данных
                 if user_telegram_id:
                     try:
-                        from services.database import DatabaseManager
-                        db = DatabaseManager('okdesk_bot.db')
-                        db.execute(
-                            "UPDATE users SET okdesk_company_id = ? WHERE telegram_id = ?",
-                            (company['id'], user_telegram_id)
-                        )
-                        db.commit()
-                        logger.info(f"✅ Обновлен okdesk_company_id={company['id']} для пользователя {user_telegram_id} в базе данных")
-                        db.close()
+                        from database.crud import UserService
+                        user = UserService.get_user_by_telegram_id(user_telegram_id)
+                        if user:
+                            user.company_id = company['id']
+                            # Commit changes using SQLAlchemy session
+                            from models.database import SessionLocal
+                            db_session = SessionLocal()
+                            db_session.merge(user)
+                            db_session.commit()
+                            db_session.close()
+                            logger.info(f"✅ Обновлен okdesk_company_id={company['id']} для пользователя {user_telegram_id} в базе данных")
                     except Exception as e:
                         logger.error(f"❌ Ошибка при обновлении okdesk_company_id в базе данных: {e}")
         
@@ -572,27 +576,28 @@ class OkdeskAPI:
                 
                 # Если есть телефон, попробуем найти пользователя в базе и обновить его okdesk_contact_id
                 try:
+                    from database.crud import UserService
+                    from models.database import SessionLocal, User
+
                     clean_search_phone = ''.join(c for c in phone if c.isdigit())
-                    from services.database import DatabaseManager
-                    db = DatabaseManager('okdesk_bot.db')
-                    
-                    # Получаем телефоны из базы и очищаем их для сравнения
-                    users = db.execute("SELECT telegram_id, phone FROM users WHERE okdesk_contact_id IS NULL").fetchall()
-                    for user_id, user_phone in users:
-                        if user_phone:
-                            clean_user_phone = ''.join(c for c in user_phone if c.isdigit())
+
+                    # Получаем пользователей без okdesk_contact_id
+                    db_session = SessionLocal()
+                    users = db_session.query(User).filter(User.okdesk_contact_id.is_(None), User.phone.isnot(None)).all()
+
+                    for user in users:
+                        if user.phone:
+                            clean_user_phone = ''.join(c for c in user.phone if c.isdigit())
                             # Сравниваем последние 10 цифр телефонов
                             if (len(clean_search_phone) >= 10 and len(clean_user_phone) >= 10 and
                                 clean_search_phone[-10:] == clean_user_phone[-10:]):
                                 # Обновляем okdesk_contact_id для пользователя
-                                db.execute(
-                                    "UPDATE users SET okdesk_contact_id = ? WHERE telegram_id = ?",
-                                    (response['id'], user_id)
-                                )
-                                db.commit()
-                                logger.info(f"✅ Обновлен okdesk_contact_id={response['id']} для пользователя {user_id} в базе данных")
-                    
-                    db.close()
+                                user.okdesk_contact_id = response['id']
+                                db_session.merge(user)
+                                db_session.commit()
+                                logger.info(f"✅ Обновлен okdesk_contact_id={response['id']} для пользователя {user.telegram_id} в базе данных")
+
+                    db_session.close()
                 except Exception as e:
                     logger.error(f"❌ Ошибка при обновлении okdesk_contact_id в базе данных: {e}")
                 
@@ -749,26 +754,21 @@ class OkdeskAPI:
             # Если компания создана с ИНН, обновим базу данных пользователей
             if inn:
                 try:
-                    from services.database import DatabaseManager
-                    db = DatabaseManager('okdesk_bot.db')
-                    
+                    from models.database import SessionLocal, User
+
+                    db_session = SessionLocal()
+
                     # Получаем пользователей с этим ИНН, у которых не задан company_id
-                    users = db.execute(
-                        "SELECT telegram_id FROM users WHERE inn = ? AND company_id IS NULL", 
-                        (inn,)
-                    ).fetchall()
-                    
-                    for user_row in users:
-                        user_id = user_row[0]
+                    users = db_session.query(User).filter(User.inn_company == inn, User.company_id.is_(None)).all()
+
+                    for user in users:
                         # Обновляем company_id для пользователя
-                        db.execute(
-                            "UPDATE users SET company_id = ? WHERE telegram_id = ?",
-                            (response['id'], user_id)
-                        )
-                        logger.info(f"✅ Обновлен company_id={response['id']} для пользователя {user_id} в базе данных")
-                    
-                    db.commit()
-                    db.close()
+                        user.company_id = response['id']
+                        db_session.merge(user)
+                        db_session.commit()
+                        logger.info(f"✅ Обновлен company_id={response['id']} для пользователя {user.telegram_id} в базе данных")
+
+                    db_session.close()
                 except Exception as e:
                     logger.error(f"❌ Ошибка при обновлении company_id в базе данных: {e}")
                     
@@ -902,26 +902,21 @@ class OkdeskAPI:
                 
                 # Если найдена компания, обновим её ID для всех пользователей с этим ИНН
                 try:
-                    from services.database import DatabaseManager
-                    db = DatabaseManager('okdesk_bot.db')
-                    
+                    from models.database import SessionLocal, User
+
+                    db_session = SessionLocal()
+
                     # Получаем пользователей с этим ИНН, у которых не задан company_id
-                    users = db.execute(
-                        "SELECT telegram_id FROM users WHERE inn_company = ? AND company_id IS NULL", 
-                        (clean_inn,)
-                    ).fetchall()
-                    
-                    for user_row in users:
-                        user_id = user_row[0]
+                    users = db_session.query(User).filter(User.inn_company == clean_inn, User.company_id.is_(None)).all()
+
+                    for user in users:
                         # Обновляем company_id для пользователя
-                        db.execute(
-                            "UPDATE users SET company_id = ? WHERE telegram_id = ?",
-                            (company['id'], user_id)
-                        )
-                        logger.info(f"✅ Обновлен company_id={company['id']} для пользователя {user_id} в базе данных")
-                    
-                    db.commit()
-                    db.close()
+                        user.company_id = company['id']
+                        db_session.merge(user)
+                        db_session.commit()
+                        logger.info(f"✅ Обновлен company_id={company['id']} для пользователя {user.telegram_id} в базе данных")
+
+                    db_session.close()
                 except Exception as e:
                     logger.error(f"❌ Ошибка при обновлении company_id в базе данных: {e}")
                 

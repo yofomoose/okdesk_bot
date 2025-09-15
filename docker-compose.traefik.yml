@@ -1,6 +1,21 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=okdesk_bot
+      - POSTGRES_USER=okdesk_user
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"  # Expose for external access
+    networks:
+      - okdesk_network
+
   # Telegram Bot
   okdesk_bot:
     build: .
@@ -9,12 +24,12 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - OKDESK_API_URL=${OKDESK_API_URL}
       - OKDESK_API_TOKEN=${OKDESK_API_TOKEN}
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=postgresql://okdesk_user:${POSTGRES_PASSWORD:-changeme123}@postgres:5432/okdesk_bot
       - ADMIN_IDS=${ADMIN_IDS}
-    volumes:
-      - bot_data:/app/data
-      - db_data:/app  # Общая база данных
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme123}
     depends_on:
+      - postgres
       - okdesk_webhook
     networks:
       - okdesk_network
@@ -30,12 +45,13 @@ services:
       - OKDESK_API_TOKEN=${OKDESK_API_TOKEN}
       - WEBHOOK_PATH=${WEBHOOK_PATH}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=postgresql://okdesk_user:${POSTGRES_PASSWORD:-changeme123}@postgres:5432/okdesk_bot
       - HOST=0.0.0.0
       - PORT=8000
-    volumes:
-      - bot_data:/app/data
-      - db_data:/app  # Общая база данных
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme123}
+    depends_on:
+      - postgres
     networks:
       - okdesk_network
       - n8n_default  # Подключаемся к сети Traefik
@@ -58,7 +74,7 @@ services:
 
 volumes:
   bot_data:
-  db_data:  # Общий volume для базы данных
+  postgres_data:
 
 networks:
   okdesk_network:

@@ -19,16 +19,29 @@ WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/okdesk-webhook")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
 # Database Configuration
-# Для Docker используется /app/data/, для локального запуска - data/
-import os
+# PostgreSQL Configuration
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
+POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
+POSTGRES_DB = os.getenv("POSTGRES_DB", "okdesk_bot")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "okdesk_user")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "changeme123")
+
+# Default PostgreSQL URL
+DEFAULT_POSTGRES_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+
+# Fallback to SQLite for local development
 if os.path.exists("/app/data"):
-    # Запущено в Docker контейнере
+    # Docker with SQLite fallback
     DEFAULT_DB_PATH = "sqlite:////app/data/okdesk_bot.db"
 else:
-    # Локальный запуск
+    # Local SQLite
     DEFAULT_DB_PATH = "sqlite:///data/okdesk_bot.db"
 
-DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DB_PATH)
+# Use PostgreSQL if POSTGRES_HOST is set and not 'sqlite', otherwise use SQLite
+if POSTGRES_HOST and POSTGRES_HOST.lower() != 'sqlite':
+    DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_POSTGRES_URL)
+else:
+    DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DB_PATH)
 
 # Server Configuration
 HOST = os.getenv("HOST", "0.0.0.0")  # Слушаем на всех интерфейсах
