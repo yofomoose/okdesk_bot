@@ -138,7 +138,40 @@ class UserService:
             db.close()
     
     @staticmethod
-    def update_company_id_by_telegram_id(telegram_id: int, company_id: int) -> Optional[User]:
+    def update_portal_token_by_telegram_id(telegram_id: int, portal_token: str) -> Optional[User]:
+        """Обновить токен портала для пользователя по telegram_id"""
+        logger.info(f"Обновление portal_token для пользователя telegram_id={telegram_id}")
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.telegram_id == telegram_id).first()
+            if user:
+                user.portal_token = portal_token
+                db.commit()
+                db.refresh(user)
+                logger.info(f"✅ Успешно обновлен токен портала для пользователя {telegram_id}")
+                return user
+            else:
+                logger.warning(f"⚠️ Пользователь с telegram_id={telegram_id} не найден в базе данных")
+                return None
+        except Exception as e:
+            logger.error(f"❌ Ошибка при обновлении portal_token для пользователя {telegram_id}: {e}")
+            return None
+        finally:
+            db.close()
+    
+    @staticmethod
+    def get_portal_token_by_telegram_id(telegram_id: int) -> Optional[str]:
+        """Получить токен портала пользователя по telegram_id"""
+        try:
+            db = SessionLocal()
+            try:
+                user = db.query(User).filter(User.telegram_id == telegram_id).first()
+                return user.portal_token if user else None
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Ошибка получения portal_token для пользователя {telegram_id}: {e}")
+            return None
         """Обновить ID компании OkDesk для пользователя по telegram_id"""
         logger.info(f"Обновление company_id={company_id} для пользователя telegram_id={telegram_id}")
         db = SessionLocal()

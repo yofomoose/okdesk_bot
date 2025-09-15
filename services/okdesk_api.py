@@ -225,6 +225,13 @@ class OkdeskAPI:
                 kwargs['contact_id'] = contact['id']
                 logger.info(f"✅ Добавляем contact_id в параметры: {kwargs['contact_id']}")
                 
+                # Извлекаем токен портала из найденного контакта
+                portal_token = contact.get('authentication_code')
+                if portal_token:
+                    logger.info(f"✅ Получен токен портала для существующего контакта: {portal_token[:10]}...")
+                else:
+                    logger.warning("⚠️ Токен портала не найден в данных существующего контакта")
+                
                 # Если предоставлена функция обратного вызова для обновления контакта, вызываем её
                 if 'update_contact_callback' in kwargs and callable(kwargs['update_contact_callback']):
                     try:
@@ -232,6 +239,26 @@ class OkdeskAPI:
                         await kwargs['update_contact_callback'](contact['id'])
                     except Exception as e:
                         logger.error(f"❌ Ошибка при вызове update_contact_callback: {e}")
+                # Если указан telegram_id, обновляем запись пользователя в базе данных
+                elif user_telegram_id:
+                    try:
+                        from database.crud import UserService
+                        user = UserService.get_user_by_telegram_id(user_telegram_id)
+                        if user:
+                            user.okdesk_contact_id = contact['id']
+                            # Сохраняем токен портала, если он получен
+                            if portal_token:
+                                user.portal_token = portal_token
+                                logger.info(f"✅ Сохранен токен портала для пользователя {user_telegram_id}")
+                            # Commit changes using SQLAlchemy session
+                            from models.database import SessionLocal
+                            db_session = SessionLocal()
+                            db_session.merge(user)
+                            db_session.commit()
+                            db_session.close()
+                            logger.info(f"✅ Обновлен okdesk_contact_id={contact['id']} для пользователя {user_telegram_id} в базе данных")
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка при обновлении okdesk_contact_id в базе данных: {e}")
             else:
                 # Если контакт не найден, создаем новый
                 logger.info(f"❗ Контакт не найден по телефону. Создаем новый контакт.")
@@ -258,6 +285,13 @@ class OkdeskAPI:
                     kwargs['contact_id'] = new_contact['id']
                     logger.info(f"✅ Добавляем новый contact_id в параметры: {kwargs['contact_id']}")
                     
+                    # Извлекаем токен портала из ответа API
+                    portal_token = new_contact.get('authentication_code')
+                    if portal_token:
+                        logger.info(f"✅ Получен токен портала для нового контакта: {portal_token[:10]}...")
+                    else:
+                        logger.warning("⚠️ Токен портала не найден в ответе API при создании контакта")
+                    
                     # Если предоставлена функция обратного вызова для обновления контакта, вызываем её
                     if 'update_contact_callback' in kwargs and callable(kwargs['update_contact_callback']):
                         try:
@@ -272,6 +306,10 @@ class OkdeskAPI:
                             user = UserService.get_user_by_telegram_id(user_telegram_id)
                             if user:
                                 user.okdesk_contact_id = new_contact['id']
+                                # Сохраняем токен портала, если он получен
+                                if portal_token:
+                                    user.portal_token = portal_token
+                                    logger.info(f"✅ Сохранен токен портала для пользователя {user_telegram_id}")
                                 # Commit changes using SQLAlchemy session
                                 from models.database import SessionLocal
                                 db_session = SessionLocal()
@@ -685,10 +723,27 @@ class OkdeskAPI:
         response = await self._make_request('POST', 'contacts', data)
         return response if response else {}
     
-    # Добавляем алиас метода для обратной совместимости
-    async def search_contact_by_phone(self, phone: str) -> Dict:
-        """Алиас метода find_contact_by_phone для обратной совместимости"""
-        return await self.find_contact_by_phone(phone)
+    async def get_contact_portal_token(self, contact_id: int) -> Optional[str]:
+        """Получить токен портала для контакта"""
+        try:
+            logger.info(f"Получаем токен портала для контакта ID={contact_id}")
+            response = await self._make_request('GET', f'contacts/{contact_id}')
+            
+            if response and isinstance(response, dict):
+                auth_code = response.get('authentication_code')
+                if auth_code:
+                    logger.info(f"✅ Найден токен портала для контакта {contact_id}")
+                    return auth_code
+                else:
+                    logger.warning(f"⚠️ Токен портала не найден для контакта {contact_id}")
+                    return None
+            else:
+                logger.error(f"❌ Не удалось получить данные контакта {contact_id}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения токена портала для контакта {contact_id}: {e}")
+            return None
     
     async def create_company(self, name: str, inn: str = None, **kwargs) -> Dict:
         """
@@ -1127,3 +1182,81 @@ class OkdeskAPI:
                 'issue_id': issue_id,
                 'error': 'Не удалось добавить комментарий с оценкой'
             }
+
+    async def create_login_link(self, user_type: str, user_id: int, redirect_url: str = None, expire_minutes: int = 60*24*30, one_time: bool = False) -> Dict:
+        """
+        Создает ссылку для входа в портал OkDesk
+        
+        Args:
+            user_type: Тип пользователя ('contact' для контактов, 'employee' для сотрудников)
+            user_id: ID пользователя
+            redirect_url: URL для перенаправления после входа
+            expire_minutes: Время жизни ссылки в минутах
+            one_time: Одноразовая ли ссылка
+            
+        Returns:
+            Dict: Ответ API с ссылкой для входа
+        """
+        try:
+            data = {
+                'user_type': user_type,
+                'user_id': user_id,
+                'expire_after': expire_minutes,
+                'one_time': one_time
+            }
+            
+            logger.info(f"Создаем ссылку входа для {user_type} ID={user_id}")
+            response = await self._make_request('POST', 'login_link', data)
+            
+            if response and 'url' in response:
+                logger.info(f"✅ Создана ссылка входа: {response['url']}")
+                return response
+            else:
+                logger.error(f"❌ Не удалось создать ссылку входа: {response}")
+                return {}
+                
+        except Exception as e:
+            logger.error(f"Ошибка создания ссылки входа: {e}")
+            return {}
+
+    async def create_contact_with_portal_access(self, first_name: str, last_name: str, **kwargs) -> Dict:
+        """
+        Создает контакт с доступом к клиентскому порталу
+        
+        Args:
+            first_name: Имя контакта
+            last_name: Фамилия контакта
+            **kwargs: Дополнительные параметры для контакта
+            
+        Returns:
+            Dict: Данные созданного контакта с информацией о доступе к порталу
+        """
+        # Добавляем права доступа к порталу
+        if 'access_level' not in kwargs:
+            kwargs['access_level'] = [
+                'company_issues',  # Отображать заявки компании
+                'allow_close_company_issues'  # Разрешить закрывать заявки компании
+            ]
+        
+        # Создаем случайный логин и пароль, если не указаны
+        if 'login' not in kwargs:
+            import uuid
+            kwargs['login'] = f"user_{str(uuid.uuid4())[:8]}"
+        
+        if 'password' not in kwargs:
+            import secrets
+            import string
+            alphabet = string.ascii_letters + string.digits
+            kwargs['password'] = ''.join(secrets.choice(alphabet) for i in range(12))
+        
+        logger.info(f"Создаем контакт с доступом к порталу: {first_name} {last_name}")
+        response = await self.create_contact(first_name, last_name, **kwargs)
+        
+        if response and 'id' in response:
+            logger.info(f"✅ Контакт создан с ID={response['id']} и доступом к порталу")
+            
+            # Добавляем информацию о логине для удобства
+            response['portal_login'] = kwargs['login']
+            response['portal_password'] = kwargs['password']
+        
+        return response

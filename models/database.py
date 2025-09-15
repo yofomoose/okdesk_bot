@@ -27,6 +27,7 @@ class User(Base):
     phone = Column(String, nullable=True)
     contact_auth_code = Column(String, nullable=True)  # Код авторизации контакта в Okdesk
     okdesk_contact_id = Column(Integer, nullable=True)  # ID контакта в Okdesk
+    portal_token = Column(String, nullable=True)  # Персональный токен авторизации для портала
     
     # Для юридических лиц
     inn_company = Column(String, nullable=True)

@@ -261,8 +261,8 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
     
     # Добавляем стандартные кнопки
     keyboard_buttons.append([
-        InlineKeyboardButton(text="🔗 Открыть заявку", url=issue.okdesk_url),
-        InlineKeyboardButton(text="💬 Добавить комментарий", callback_data=f"add_comment_{issue.id}")
+        InlineKeyboardButton(text="🔗 Открыть в портале", url=issue.okdesk_url),
+        InlineKeyboardButton(text="💬 Добавить комментарий в портале", url=issue.okdesk_url)
     ])
     
     keyboard_buttons.append([
@@ -294,7 +294,7 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
         f"📝 {issue.title}\n"
         f"👤 От: {author_name}\n"
         f"💭 Комментарий: {content[:200]}{'...' if len(content) > 200 else ''}\n\n"
-        f"🔗 Открыть заявку: {issue.okdesk_url}"
+        f"🔗 Открыть в портале: {issue.okdesk_url}"
     )
     
     # Создаем клавиатуру с кнопками быстрого доступа

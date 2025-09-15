@@ -126,7 +126,7 @@ async def process_phone(message: Message, state: FSMContext):
             )
             
             if updated_user:
-                # Создаем контакт в Okdesk
+                # Создаем контакт в Okdesk с доступом к порталу
                 try:
                     okdesk_api = OkdeskAPI()
                     # Правильно разбираем ФИО: Фамилия Имя Отчество
@@ -140,20 +140,28 @@ async def process_phone(message: Message, state: FSMContext):
                         last_name = "Клиент"
                         patronymic = ""
                     
-                    contact_response = await okdesk_api.create_contact(
+                    # Используем новую функцию с доступом к порталу
+                    contact_response = await okdesk_api.create_contact_with_portal_access(
                         first_name=first_name,
                         last_name=last_name,
                         patronymic=patronymic,
                         phone=updated_user.phone,
                         telegram_username=message.from_user.username,
-                        comment=f"Создан автоматически из Telegram бота (ID: {message.from_user.id})"
+                        comment=f"Создан автоматически из Telegram бота (ID: {message.from_user.id})",
+                        # Параметры доступа к порталу
+                        access_level=[
+                            'company_issues',  # Отображать заявки компании
+                            'allow_close_company_issues'  # Разрешить закрывать заявки компании
+                        ]
                     )
                     await okdesk_api.close()
                     
                     if contact_response and 'id' in contact_response:
-                        # Сохраняем ID контакта и код авторизации
+                        # Сохраняем ID контакта и информацию о доступе к порталу
                         contact_id = contact_response['id']
                         auth_code = contact_response.get('authentication_code')
+                        portal_login = contact_response.get('portal_login')
+                        portal_password = contact_response.get('portal_password')
                         
                         UserService.update_user_contact_info(
                             user_id=updated_user.id,
@@ -161,10 +169,18 @@ async def process_phone(message: Message, state: FSMContext):
                             auth_code=auth_code
                         )
                         
+                        # Формируем информационное сообщение
+                        contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})"
+                        
                         if auth_code:
-                            contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})\n🔐 Код авторизации: {auth_code}"
+                            contact_info += f"\n🔐 Код авторизации: {auth_code}"
+                        
+                        if portal_login and portal_password:
+                            contact_info += f"\n� Логин портала: {portal_login}"
+                            contact_info += f"\n🔑 Пароль портала: {portal_password}"
+                            contact_info += f"\n🌐 Вы можете войти в клиентский портал: {config.OKDESK_PORTAL_URL}"
                         else:
-                            contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})"
+                            contact_info += "\n⚠️ Данные для входа в портал будут высланы отдельно"
                     else:
                         contact_info = "\n⚠️ Контакт не удалось создать в Okdesk"
                         
@@ -267,7 +283,8 @@ async def process_inn(message: Message, state: FSMContext):
                         last_name = "Представитель"
                         patronymic = ""
                     
-                    contact_response = await okdesk_api.create_contact(
+                    # Используем новую функцию с доступом к порталу
+                    contact_response = await okdesk_api.create_contact_with_portal_access(
                         first_name=first_name,
                         last_name=last_name,
                         patronymic=patronymic,
@@ -276,7 +293,12 @@ async def process_inn(message: Message, state: FSMContext):
                         position="Представитель компании",
                         telegram_username=message.from_user.username,
                         inn_company=inn,
-                        comment=f"Контактное лицо компании. ИНН: {inn}. Создан из Telegram бота (ID: {message.from_user.id})"
+                        comment=f"Контактное лицо компании. ИНН: {inn}. Создан из Telegram бота (ID: {message.from_user.id})",
+                        # Параметры доступа к порталу
+                        access_level=[
+                            'company_issues',  # Отображать заявки компании
+                            'allow_close_company_issues'  # Разрешить закрывать заявки компании
+                        ]
                     )
                     
                     # Обработка ответа создания контакта
@@ -353,7 +375,8 @@ async def process_inn(message: Message, state: FSMContext):
                         last_name = "Представитель"
                         patronymic = ""
                     
-                    contact_response = await okdesk_api.create_contact(
+                    # Используем новую функцию с доступом к порталу
+                    contact_response = await okdesk_api.create_contact_with_portal_access(
                         first_name=first_name,
                         last_name=last_name,
                         patronymic=patronymic,
@@ -361,7 +384,12 @@ async def process_inn(message: Message, state: FSMContext):
                         position="Представитель",
                         telegram_username=message.from_user.username,
                         inn_company=inn,
-                        comment=f"ИНН: {inn}. Создан из Telegram бота (ID: {message.from_user.id})"
+                        comment=f"ИНН: {inn}. Создан из Telegram бота (ID: {message.from_user.id})",
+                        # Параметры доступа к порталу
+                        access_level=[
+                            'company_issues',  # Отображать заявки компании
+                            'allow_close_company_issues'  # Разрешить закрывать заявки компании
+                        ]
                     )
                     
                     # Обработка ответа создания контакта

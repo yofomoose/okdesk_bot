@@ -42,17 +42,129 @@ async def cmd_menu(message: Message):
         )
         return
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+    # Создаем кнопки меню
+    keyboard_buttons = []
+    
+    # Основные действия
+    keyboard_buttons.extend([
         [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
-        [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
-        [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
+        [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")]
     ])
+    
+    # Если у пользователя есть доступ к порталу, добавляем кнопку портала
+    if user and user.okdesk_contact_id:
+        try:
+            from update_urls import update_user_portal_access
+            import asyncio
+            portal_result = await update_user_portal_access(user.telegram_id)
+            
+            if portal_result.get('success'):
+                portal_url = portal_result.get('main_portal_url', config.OKDESK_PORTAL_URL)
+                keyboard_buttons.append([InlineKeyboardButton(text="🌐 Клиентский портал", url=portal_url)])
+        except Exception as e:
+            logger.error(f"Ошибка создания ссылки на портал: {e}")
+            # Fallback - обычная ссылка на портал
+            keyboard_buttons.append([InlineKeyboardButton(text="🌐 Клиентский портал", url=config.OKDESK_PORTAL_URL)])
+    
+    # Дополнительные кнопки
+    keyboard_buttons.append([InlineKeyboardButton(text="👤 Профиль", callback_data="profile")])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
     await message.answer(
         "🏠 Главное меню\n\n"
         "Выберите действие:",
         reply_markup=keyboard
     )
+
+@router.callback_query(F.data == "main_menu")
+async def show_main_menu(callback: CallbackQuery):
+    """Показать главное меню через callback"""
+    user = UserService.get_user_by_telegram_id(callback.from_user.id)
+    
+    if not is_user_registered(user):
+        await callback.message.edit_text(
+            "❌ Вы не зарегистрированы в системе.\n"
+            "Используйте команду /start для регистрации."
+        )
+        return
+    
+    # Создаем кнопки меню
+    keyboard_buttons = []
+    
+    # Основные действия
+    keyboard_buttons.extend([
+        [InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
+        [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")]
+    ])
+    
+    # Если у пользователя есть доступ к порталу, добавляем кнопку портала
+    if user and user.okdesk_contact_id:
+        try:
+            from update_urls import update_user_portal_access
+            portal_result = await update_user_portal_access(user.telegram_id)
+            
+            if portal_result.get('success'):
+                portal_url = portal_result.get('main_portal_url', config.OKDESK_PORTAL_URL)
+                keyboard_buttons.append([InlineKeyboardButton(text="🌐 Клиентский портал", url=portal_url)])
+        except Exception as e:
+            logger.error(f"Ошибка создания ссылки на портал: {e}")
+            # Fallback - обычная ссылка на портал
+            keyboard_buttons.append([InlineKeyboardButton(text="🌐 Клиентский портал", url=config.OKDESK_PORTAL_URL)])
+    
+    # Дополнительные кнопки
+    keyboard_buttons.append([InlineKeyboardButton(text="👤 Профиль", callback_data="profile")])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    
+    await callback.message.edit_text(
+        "🏠 Главное меню\n\n"
+        "Выберите действие:",
+        reply_markup=keyboard
+    )
+
+
+@router.callback_query(F.data == "profile")
+async def show_profile(callback: CallbackQuery):
+    """Показать профиль пользователя"""
+    user = UserService.get_user_by_telegram_id(callback.from_user.id)
+    
+    if not user:
+        await callback.answer("❌ Пользователь не найден")
+        return
+    
+    # Формируем информацию о профиле
+    profile_text = "👤 **Ваш профиль:**\n\n"
+    
+    if user.user_type == "physical":
+        profile_text += f"🔸 Тип: Физическое лицо\n"
+        profile_text += f"👤 ФИО: {user.full_name or 'Не указано'}\n"
+        profile_text += f"📱 Телефон: {user.phone or 'Не указан'}\n"
+    elif user.user_type == "legal":
+        profile_text += f"🔸 Тип: Юридическое лицо\n"
+        profile_text += f"👤 ФИО: {user.full_name or 'Не указано'}\n"
+        profile_text += f"📱 Телефон: {user.phone or 'Не указан'}\n"
+        profile_text += f"🏢 Компания: {user.company_name or 'Не привязана'}\n"
+        profile_text += f"🔢 ИНН: {user.inn_company or 'Не указан'}\n"
+    
+    # Информация о доступе к порталу
+    if user.okdesk_contact_id:
+        profile_text += f"\n🔗 Контакт Okdesk: #{user.okdesk_contact_id}\n"
+        profile_text += f"🌐 Доступ к порталу: ✅ Настроен\n"
+    else:
+        profile_text += f"\n⚠️ Доступ к порталу не настроен\n"
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌐 Открыть портал", url=config.OKDESK_PORTAL_URL)],
+        [InlineKeyboardButton(text="🔙 Главное меню", callback_data="main_menu")]
+    ])
+    
+    await callback.message.edit_text(
+        profile_text,
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):
@@ -176,11 +288,42 @@ async def process_issue_description(message: Message, state: FSMContext):
         # try-блок внутри create_issue попытается найти его по телефону
         response = await okdesk_api.create_issue(title, description, **user_data)
         
+        # Заявка успешно создана в Okdesk
         if response and "id" in response:
             # Заявка успешно создана в Okdesk
             okdesk_issue_id = response["id"]
             issue_number = response.get("number", str(okdesk_issue_id))
-            okdesk_url = f"{config.OKDESK_API_URL.replace('/api/v1', '')}/issues/{okdesk_issue_id}"
+            
+            # Используем новую систему генерации ссылок с автоматическим входом
+            contact_id = user.okdesk_contact_id
+            
+            if contact_id:
+                # Импортируем функцию для создания расширенных ссылок
+                from update_urls import get_enhanced_issue_urls
+                
+                # Генерируем улучшенные ссылки с автоматическим входом
+                try:
+                    url_result = await get_enhanced_issue_urls(user.telegram_id, okdesk_issue_id)
+                    
+                    if url_result.get('success'):
+                        okdesk_url = url_result['auto_login_url']  # Ссылка с автоматическим входом
+                        simple_url = url_result['simple_url']      # Обычная ссылка
+                        main_portal_url = url_result['main_portal_url']  # Главная портала
+                        
+                        logger.info(f"✅ Сгенерированы улучшенные ссылки для заявки {okdesk_issue_id}")
+                    else:
+                        # Fallback к простой ссылке
+                        okdesk_url = f"{config.OKDESK_PORTAL_URL}/issues/{okdesk_issue_id}"
+                        logger.warning(f"⚠️ Используем простую ссылку для заявки {okdesk_issue_id}")
+                        
+                except Exception as e:
+                    logger.error(f"Ошибка генерации улучшенных ссылок: {e}")
+                    # Fallback к простой ссылке
+                    okdesk_url = f"{config.OKDESK_PORTAL_URL}/issues/{okdesk_issue_id}"
+            else:
+                # Если нет contact_id, используем простую ссылку на портал
+                okdesk_url = f"{config.OKDESK_PORTAL_URL}/issues/{okdesk_issue_id}"
+                logger.warning(f"⚠️ У пользователя {user.telegram_id} нет contact_id, используем простую ссылку")
             
             # Сохраняем заявку в нашей БД
             issue = IssueService.create_issue(
@@ -193,20 +336,35 @@ async def process_issue_description(message: Message, state: FSMContext):
                 issue_number=issue_number
             )
             
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔗 Открыть заявку", url=okdesk_url)],
-                [InlineKeyboardButton(text="💬 Добавить комментарий", callback_data=f"add_comment_{issue.id}")],
+            # Создаем улучшенные кнопки для работы с заявкой
+            keyboard_buttons = []
+            
+            # Основная кнопка для перехода в портал
+            keyboard_buttons.append([InlineKeyboardButton(text="🔗 Открыть заявку в портале", url=okdesk_url)])
+            
+            # Если у нас есть contact_id и дополнительные ссылки, добавляем их
+            if contact_id and 'url_result' in locals() and url_result.get('success'):
+                # Кнопка для главной страницы портала
+                keyboard_buttons.append([InlineKeyboardButton(text="🏠 Главная портала", url=url_result['main_portal_url'])])
+            
+            # Дополнительные функциональные кнопки
+            keyboard_buttons.extend([
                 [InlineKeyboardButton(text="🔄 Проверить статус", callback_data=f"check_status_{issue.id}")],
+                [InlineKeyboardButton(text="💬 Добавить комментарий", callback_data=f"add_comment_{issue.id}")],
+                [InlineKeyboardButton(text="📋 Все заявки", callback_data="my_issues")],
                 [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
             ])
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
             
             await message.answer(
                 f"✅ Заявка успешно создана!\n\n"
                 f"📋 Номер заявки: #{issue_number}\n"
                 f"📝 Заголовок: {title}\n"
                 f"📊 Статус: {config.ISSUE_STATUS_MESSAGES.get('opened', 'Открыта')}\n\n"
-                f"🔗 Ссылка на заявку: {okdesk_url}\n\n"
-                f"Вы можете отслеживать статус заявки и добавлять комментарии.",
+                f"🌐 Ссылка на заявку в клиентском портале: {okdesk_url}\n\n"
+                f"💡 Перейдите по ссылке, чтобы просмотреть заявку и добавить комментарии через браузер.\n"
+                f"🔐 Вход в портал будет выполнен автоматически.",
                 reply_markup=keyboard
             )
         else:
@@ -377,12 +535,35 @@ async def view_issue(callback: CallbackQuery):
         
         status_text = config.ISSUE_STATUS_MESSAGES.get(issue.status, issue.status)
         
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔗 Открыть заявку", url=issue.okdesk_url)],
-            [InlineKeyboardButton(text="💬 Добавить комментарий", callback_data=f"add_comment_{issue.id}")],
+        # Создаем кнопки с учетом возможности автоматического входа
+        keyboard_buttons = []
+        
+        # Пытаемся создать ссылку с автоматическим входом
+        user = UserService.get_user_by_telegram_id(callback.from_user.id)
+        enhanced_url = issue.okdesk_url  # По умолчанию используем существующую ссылку
+        
+        if user and user.okdesk_contact_id:
+            try:
+                from update_urls import get_enhanced_issue_urls
+                url_result = await get_enhanced_issue_urls(user.telegram_id, issue.okdesk_issue_id)
+                
+                if url_result.get('success'):
+                    enhanced_url = url_result['auto_login_url']
+                    # Дополнительная кнопка для главной портала
+                    keyboard_buttons.append([InlineKeyboardButton(text="🏠 Главная портала", url=url_result['main_portal_url'])])
+                    
+            except Exception as e:
+                logger.error(f"Ошибка создания enhanced URL: {e}")
+        
+        # Основные кнопки
+        keyboard_buttons.extend([
+            [InlineKeyboardButton(text="� Открыть в портале", url=enhanced_url)],
             [InlineKeyboardButton(text="🔄 Обновить статус", callback_data=f"check_status_{issue.id}")],
+            [InlineKeyboardButton(text="💬 Добавить комментарий", callback_data=f"add_comment_{issue.id}")],
             [InlineKeyboardButton(text="📋 Все заявки", callback_data="my_issues")]
         ])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
         
         await callback.message.edit_text(
             f"📋 Заявка #{issue.issue_number}\n\n"
@@ -390,7 +571,7 @@ async def view_issue(callback: CallbackQuery):
             f"📄 Описание: {issue.description or 'Не указано'}\n"
             f"📊 Статус: {status_text}\n"
             f"📅 Создана: {issue.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
-            f"🔗 Ссылка: {issue.okdesk_url}",
+            f"🔗 Ссылка на портал: {issue.okdesk_url}",
             reply_markup=keyboard
         )
     finally:
