@@ -21,13 +21,17 @@ help: ## Показать справку по командам
 	@echo "$(BOLD)$(BLUE)🤖 Okdesk Bot - Управление проектом$(RESET)"
 	@echo ""
 	@echo "$(BOLD)Основные команды:$(RESET)"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "$(GREEN)%-15s$(RESET) %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "$(GREEN)%-20s$(RESET) %s\n", $$1, $$2}'
+	@echo ""
+	@echo "$(BOLD)PostgreSQL команды:$(RESET)"
+	@grep -E '^(db-|backup|restore):.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "$(BLUE)%-20s$(RESET) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)Примеры использования:$(RESET)"
-	@echo "  make update     # Обновить код и перезапустить"
-	@echo "  make logs       # Посмотреть логи"
-	@echo "  make test       # Запустить тесты"
-	@echo "  make status     # Проверить статус"
+	@echo "  make update        # Обновить код и перезапустить"
+	@echo "  make logs          # Посмотреть логи"
+	@echo "  make db-status     # Проверить PostgreSQL"
+	@echo "  make backup        # Создать бэкап БД"
+	@echo "  make test          # Запустить тесты"
 
 update: ## Полное обновление проекта (git pull + rebuild + restart)
 	@echo "$(BOLD)$(BLUE)🔄 Начинаем полное обновление проекта...$(RESET)"
@@ -98,8 +102,7 @@ test: ## Запустить тесты и диагностику
 		-w "\nStatus: %{http_code}\n" || echo "$(RED)❌ Webhook тест провален$(RESET)"
 	@echo ""
 	@echo "$(BOLD)2. 🗄️ Тест базы данных:$(RESET)"
-	@docker exec $(PROJECT_NAME)_okdesk_bot_1 sqlite3 /app/data/okdesk_bot.db \
-		"SELECT COUNT(*) as users_count FROM users;" 2>/dev/null || echo "$(RED)❌ База данных недоступна$(RESET)"
+	@docker exec $(PROJECT_NAME)_postgres_1 psql -U okdesk_user -d okdesk_bot -c "SELECT COUNT(*) as users_count FROM users;" 2>/dev/null || echo "$(RED)❌ База данных недоступна$(RESET)"
 	@echo ""
 	@echo "$(BOLD)3. 🔗 Тест Okdesk API:$(RESET)"
 	@curl -s "https://yapomogu55.okdesk.ru/api/v1/issues?limit=1&api_token=$$(grep OKDESK_API_TOKEN .env | cut -d'=' -f2)" \
@@ -117,22 +120,20 @@ test-comment: ## Тест создания комментария
 		echo "$(RED)❌ Не найдено заявок для тестирования$(RESET)"; \
 	fi
 
-backup: ## Создать резервную копию базы данных
-	@echo "$(BOLD)$(BLUE)💾 Создание резервной копии...$(RESET)"
+backup: ## Создать резервную копию базы данных PostgreSQL
+	@echo "$(BOLD)$(BLUE)💾 Создание резервной копии PostgreSQL...$(RESET)"
 	@mkdir -p $(BACKUP_DIR)
 	@timestamp=$$(date +%Y%m%d_%H%M%S); \
-	docker exec $(PROJECT_NAME)_okdesk_bot_1 sqlite3 /app/data/okdesk_bot.db ".backup /tmp/backup_$$timestamp.db" && \
-	docker cp $(PROJECT_NAME)_okdesk_bot_1:/tmp/backup_$$timestamp.db $(BACKUP_DIR)/okdesk_bot_$$timestamp.db && \
-	docker exec $(PROJECT_NAME)_okdesk_bot_1 rm /tmp/backup_$$timestamp.db && \
-	echo "$(GREEN)✅ Резервная копия создана: $(BACKUP_DIR)/okdesk_bot_$$timestamp.db$(RESET)"
+	docker exec $(PROJECT_NAME)_postgres_1 pg_dump -U okdesk_user -d okdesk_bot > $(BACKUP_DIR)/okdesk_bot_$$timestamp.sql && \
+	echo "$(GREEN)✅ Резервная копия создана: $(BACKUP_DIR)/okdesk_bot_$$timestamp.sql$(RESET)"
 
-restore: ## Восстановить базу данных из резервной копии
-	@echo "$(BOLD)$(YELLOW)⚠️  Восстановление базы данных$(RESET)"
+restore: ## Восстановить базу данных PostgreSQL из резервной копии
+	@echo "$(BOLD)$(YELLOW)⚠️  Восстановление базы данных PostgreSQL$(RESET)"
 	@echo "Доступные резервные копии:"
-	@ls -la $(BACKUP_DIR)/*.db 2>/dev/null || echo "$(RED)❌ Резервные копии не найдены$(RESET)"
+	@ls -la $(BACKUP_DIR)/*.sql 2>/dev/null || echo "$(RED)❌ Резервные копии не найдены$(RESET)"
 	@echo ""
 	@echo "$(YELLOW)Для восстановления выполните:$(RESET)"
-	@echo "docker cp $(BACKUP_DIR)/<файл_копии> $(PROJECT_NAME)_okdesk_bot_1:/app/data/okdesk_bot.db"
+	@echo "cat $(BACKUP_DIR)/<файл_копии.sql> | docker exec -i $(PROJECT_NAME)_postgres_1 psql -U okdesk_user -d okdesk_bot"
 	@echo "make restart"
 
 clean: ## Очистка системы (удаление неиспользуемых образов и томов)
@@ -237,6 +238,38 @@ optimize: ## Полная оптимизация Docker
 	@echo "$(YELLOW)Очистка кэша сборки...$(RESET)"
 	docker builder prune -f
 	@echo "$(GREEN)✅ Оптимизация завершена!$(RESET)"
+
+# PostgreSQL команды
+db-connect: ## Подключиться к PostgreSQL базе данных
+	@echo "$(BOLD)$(BLUE)🗄️ Подключение к PostgreSQL...$(RESET)"
+	docker exec -it $(PROJECT_NAME)_postgres_1 psql -U okdesk_user -d okdesk_bot
+
+db-shell: ## Открыть PostgreSQL shell
+	@echo "$(BOLD)$(BLUE)🐚 PostgreSQL Shell...$(RESET)"
+	docker exec -it $(PROJECT_NAME)_postgres_1 bash -c "psql -U okdesk_user -d okdesk_bot"
+
+db-logs: ## Показать логи PostgreSQL
+	@echo "$(BOLD)$(BLUE)📋 Логи PostgreSQL$(RESET)"
+	docker logs $(PROJECT_NAME)_postgres_1 --tail=$(LOG_LINES)
+
+db-status: ## Проверить статус PostgreSQL
+	@echo "$(BOLD)$(BLUE)📊 Статус PostgreSQL$(RESET)"
+	@docker exec $(PROJECT_NAME)_postgres_1 pg_isready -U okdesk_user -d okdesk_bot && echo "$(GREEN)✅ PostgreSQL готов$(RESET)" || echo "$(RED)❌ PostgreSQL недоступен$(RESET)"
+
+db-migrate: ## Запустить миграцию из SQLite в PostgreSQL
+	@echo "$(BOLD)$(BLUE)🔄 Миграция данных из SQLite в PostgreSQL...$(RESET)"
+	@echo "$(YELLOW)Убедитесь что файл okdesk_bot.db находится в корне проекта$(RESET)"
+	@docker run --rm -v $$(pwd):/app -w /app --network $(PROJECT_NAME)_default \
+		python:3.11-slim bash -c "pip install -r requirements.txt && python migrate_to_postgres.py"
+
+db-reset: ## Сбросить базу данных PostgreSQL (ОСТОРОЖНО!)
+	@echo "$(BOLD)$(RED)⚠️  ВНИМАНИЕ: Это удалит все данные!$(RESET)"
+	@echo "$(YELLOW)Для продолжения выполните: make db-reset-confirm$(RESET)"
+
+db-reset-confirm: ## Подтвердить сброс базы данных PostgreSQL
+	@echo "$(BOLD)$(RED)🗑️ Сброс базы данных PostgreSQL...$(RESET)"
+	docker exec $(PROJECT_NAME)_postgres_1 psql -U okdesk_user -d okdesk_bot -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO okdesk_user;"
+	@echo "$(YELLOW)Перезапустите контейнеры для пересоздания таблиц$(RESET)"
 
 # Команда по умолчанию
 all: help
