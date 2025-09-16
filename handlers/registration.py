@@ -176,11 +176,20 @@ async def process_phone(message: Message, state: FSMContext):
                             contact_info += f"\n🔐 Код авторизации: {auth_code}"
                         
                         if portal_login and portal_password:
-                            contact_info += f"\n� Логин портала: {portal_login}"
-                            contact_info += f"\n🔑 Пароль портала: {portal_password}"
-                            contact_info += f"\n🌐 Вы можете войти в клиентский портал: {config.OKDESK_PORTAL_URL}"
+                            if portal_password == "USE_EXISTING_PASSWORD":
+                                contact_info += f"\n🔗 У вас уже есть доступ к порталу"
+                                contact_info += f"\n🌐 Клиентский портал: {config.OKDESK_PORTAL_URL}"
+                            else:
+                                contact_info += f"\n👤 Логин портала: {portal_login}"
+                                contact_info += f"\n🔑 Пароль портала: {portal_password}"
+                                contact_info += f"\n🌐 Вы можете войти в клиентский портал: {config.OKDESK_PORTAL_URL}"
                         else:
                             contact_info += "\n⚠️ Данные для входа в портал будут высланы отдельно"
+                    elif contact_response and contact_response.get('error') == 422:
+                        # Контакт уже существует
+                        contact_info = "\n⚠️ Контакт с таким Telegram username уже существует в Okdesk"
+                        contact_info += "\n🔗 Используйте существующий доступ к порталу"
+                        contact_info += f"\n🌐 Клиентский портал: {config.OKDESK_PORTAL_URL}"
                     else:
                         contact_info = "\n⚠️ Контакт не удалось создать в Okdesk"
                         
@@ -320,6 +329,11 @@ async def process_inn(message: Message, state: FSMContext):
                                           f"🌐 Веб-портал: https://yapomogu55.okdesk.ru")
                         else:
                             contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})"
+                    elif contact_response and contact_response.get('error') == 422:
+                        # Контакт уже существует
+                        contact_info = "\n⚠️ Контакт с таким Telegram username уже существует в Okdesk"
+                        contact_info += "\n🔗 Используйте существующий доступ к порталу"
+                        contact_info += "\n🌐 Веб-портал: https://yapomogu55.okdesk.ru"
                     else:
                         contact_info = "\n⚠️ Не удалось создать контакт в Okdesk"
                         
@@ -411,6 +425,11 @@ async def process_inn(message: Message, state: FSMContext):
                                           f"🌐 Веб-портал: https://yapomogu55.okdesk.ru")
                         else:
                             contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})"
+                    elif contact_response and contact_response.get('error') == 422:
+                        # Контакт уже существует
+                        contact_info = "\n⚠️ Контакт с таким Telegram username уже существует в Okdesk"
+                        contact_info += "\n🔗 Используйте существующий доступ к порталу"
+                        contact_info += "\n🌐 Веб-портал: https://yapomogu55.okdesk.ru"
                     else:
                         contact_info = "\n⚠️ Не удалось создать контакт в Okdesk"
                         

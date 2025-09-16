@@ -102,7 +102,13 @@ class OkdeskAPI:
                                 return None
                         else:
                             logger.error(f"API Error {resp.status}: {response_text}")
-                            logger.error(f"Error details: {json.loads(response_text) if response_text else None}")
+                            if resp.status == 422:
+                                # Для ошибки 422 возвращаем специальный словарь с информацией об ошибке
+                                try:
+                                    error_data = json.loads(response_text)
+                                    return {"error": 422, "details": error_data}
+                                except:
+                                    return {"error": 422, "details": response_text}
                             return None
         
         except Exception as e:
@@ -698,6 +704,47 @@ class OkdeskAPI:
             logger.error(f"Ошибка поиска контакта через API: {e}")
             return None
     
+    async def find_contact_by_telegram_username(self, telegram_username: str) -> Optional[Dict]:
+        """
+        Найти контакт по Telegram username
+        
+        Args:
+            telegram_username: Telegram username для поиска
+            
+        Returns:
+            Dict: Данные контакта или None если не найден
+        """
+        try:
+            logger.info(f"🔍 Поиск контакта по Telegram username: {telegram_username}")
+            
+            # Пробуем поиск через API с фильтром
+            endpoint = f"/contacts?telegram_username={telegram_username}"
+            response = await self._make_request('GET', endpoint)
+            
+            if response and isinstance(response, list) and len(response) > 0:
+                contact = response[0]  # Берем первый найденный контакт
+                logger.info(f"✅ Найден контакт через API: {contact.get('name', 'Без имени')} (ID: {contact.get('id')})")
+                return contact
+            
+            # Если не нашли, попробуем поиск всех контактов и фильтрацию
+            logger.info(f"🔍 Поиск контакта среди всех контактов (запасной вариант)")
+            endpoint = f"/contacts?limit=100"  # Получаем первые 100 контактов
+            response = await self._make_request('GET', endpoint)
+            
+            if response and isinstance(response, list):
+                for contact in response:
+                    # Проверяем telegram_username в контакте
+                    contact_telegram = contact.get('telegram_username', '')
+                    if contact_telegram == telegram_username:
+                        logger.info(f"✅ Найден контакт через фильтрацию: {contact.get('name', 'Без имени')} (ID: {contact.get('id')})")
+                        return contact
+            
+            logger.info(f"❌ Контакт с Telegram username {telegram_username} не найден через API")
+            return None
+        except Exception as e:
+            logger.error(f"Ошибка поиска контакта по Telegram username: {e}")
+            return None
+    
     async def create_contact(self, first_name: str, last_name: str, **kwargs) -> Dict:
         """Создать новый контакт"""
         data = {
@@ -721,6 +768,11 @@ class OkdeskAPI:
         
         logger.info(f"Создаем контакт с данными: {data}")
         response = await self._make_request('POST', 'contacts', data)
+        
+        # Если получили ошибку 422, возвращаем её для обработки выше
+        if response and isinstance(response, dict) and response.get('error') == 422:
+            return response
+        
         return response if response else {}
     
     async def get_contact_portal_token(self, contact_id: int) -> Optional[str]:
@@ -1252,11 +1304,32 @@ class OkdeskAPI:
         logger.info(f"Создаем контакт с доступом к порталу: {first_name} {last_name}")
         response = await self.create_contact(first_name, last_name, **kwargs)
         
-        if response and 'id' in response:
-            logger.info(f"✅ Контакт создан с ID={response['id']} и доступом к порталу")
+        # Если контакт не создан из-за ошибки 422 (уже существует), попробуем найти существующий
+        if (not response or (isinstance(response, dict) and response.get('error') == 422)) and 'telegram_username' in kwargs:
+            telegram_username = kwargs['telegram_username']
+            logger.warning(f"⚠️ Контакт не создан, возможно telegram_username '{telegram_username}' уже существует. Ищем существующий контакт...")
             
-            # Добавляем информацию о логине для удобства
-            response['portal_login'] = kwargs['login']
-            response['portal_password'] = kwargs['password']
+            existing_contact = await self.find_contact_by_telegram_username(telegram_username)
+            if existing_contact:
+                logger.info(f"✅ Найден существующий контакт с ID={existing_contact['id']}")
+                response = existing_contact
+                
+                # Добавляем информацию о логине для существующего контакта
+                # (пароль не возвращаем, так как он уже установлен)
+                response['portal_login'] = f"existing_user_{existing_contact['id']}"
+                response['portal_password'] = "USE_EXISTING_PASSWORD"
+            else:
+                logger.error(f"❌ Не удалось найти существующий контакт с telegram_username '{telegram_username}'")
+                # Возвращаем ошибку 422 если контакт не найден
+                if isinstance(response, dict) and response.get('error') == 422:
+                    return response
+        
+        if response and 'id' in response:
+            logger.info(f"✅ Контакт готов с ID={response['id']} и доступом к порталу")
+            
+            # Добавляем информацию о логине для новых контактов
+            if 'portal_login' not in response:
+                response['portal_login'] = kwargs['login']
+                response['portal_password'] = kwargs['password']
         
         return response
