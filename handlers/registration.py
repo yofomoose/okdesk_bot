@@ -326,14 +326,14 @@ async def process_inn(message: Message, state: FSMContext):
                         if auth_code:
                             contact_info = (f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})\n"
                                           f"🔐 Код авторизации: {auth_code}\n"
-                                          f"🌐 Веб-портал: https://yapomogu55.okdesk.ru")
+                                          f"🌐 Веб-портал: {config.OKDESK_PORTAL_URL}")
                         else:
                             contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})"
                     elif contact_response and contact_response.get('error') == 422:
                         # Контакт уже существует
                         contact_info = "\n⚠️ Контакт с таким Telegram username уже существует в Okdesk"
                         contact_info += "\n🔗 Используйте существующий доступ к порталу"
-                        contact_info += "\n🌐 Веб-портал: https://yapomogu55.okdesk.ru"
+                        contact_info += f"\n🌐 Веб-портал: {config.OKDESK_PORTAL_URL}"
                     else:
                         contact_info = "\n⚠️ Не удалось создать контакт в Okdesk"
                         
@@ -422,14 +422,14 @@ async def process_inn(message: Message, state: FSMContext):
                         if auth_code:
                             contact_info = (f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})\n"
                                           f"🔐 Код авторизации: {auth_code}\n"
-                                          f"🌐 Веб-портал: https://yapomogu55.okdesk.ru")
+                                          f"🌐 Веб-портал: {config.OKDESK_PORTAL_URL}")
                         else:
                             contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})"
                     elif contact_response and contact_response.get('error') == 422:
                         # Контакт уже существует
                         contact_info = "\n⚠️ Контакт с таким Telegram username уже существует в Okdesk"
                         contact_info += "\n🔗 Используйте существующий доступ к порталу"
-                        contact_info += "\n🌐 Веб-портал: https://yapomogu55.okdesk.ru"
+                        contact_info += f"\n🌐 Веб-портал: {config.OKDESK_PORTAL_URL}"
                     else:
                         contact_info = "\n⚠️ Не удалось создать контакт в Okdesk"
                         

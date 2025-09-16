@@ -703,7 +703,7 @@ async def process_comment(message: Message, state: FSMContext):
                     f"💬 Ваш комментарий: {comment_text}\n"
                     f"👤 Создан: {comment_source}\n\n"
                     f"📝 Также вы можете комментировать напрямую через веб-портал:\n"
-                    f"🌐 https://yapomogu55.okdesk.ru"
+                    f"🌐 {config.OKDESK_PORTAL_URL}"
                 )
             else:
                 logger.error(f"❌ Ошибка при добавлении комментария к заявке #{issue.issue_number}")
