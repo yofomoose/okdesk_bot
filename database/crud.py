@@ -276,6 +276,20 @@ class IssueService:
             return issue
         finally:
             db.close()
+    
+    @staticmethod
+    def update_issue_message_id(issue_id: int, message_id: int) -> bool:
+        """Обновить ID сообщения Telegram для заявки"""
+        db = SessionLocal()
+        try:
+            issue = db.query(Issue).filter(Issue.id == issue_id).first()
+            if issue:
+                issue.telegram_message_id = message_id
+                db.commit()
+                return True
+            return False
+        finally:
+            db.close()
 
 class CommentService:
     """Сервис для работы с комментариями"""

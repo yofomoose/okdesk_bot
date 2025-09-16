@@ -357,7 +357,8 @@ async def process_issue_description(message: Message, state: FSMContext):
             
             keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
             
-            await message.answer(
+            # Отправляем сообщение и сохраняем его ID для будущих обновлений
+            sent_message = await message.answer(
                 f"✅ Заявка успешно создана!\n\n"
                 f"📋 Номер заявки: #{issue_number}\n"
                 f"📝 Заголовок: {title}\n"
@@ -367,6 +368,11 @@ async def process_issue_description(message: Message, state: FSMContext):
                 f"🔐 Вход в портал будет выполнен автоматически.",
                 reply_markup=keyboard
             )
+            
+            # Сохраняем ID сообщения в БД для будущих обновлений статуса
+            if sent_message and sent_message.message_id:
+                IssueService.update_issue_message_id(issue.id, sent_message.message_id)
+                logger.info(f"✅ Сохранен message_id={sent_message.message_id} для заявки {issue.id}")
         else:
             await message.answer(
                 "❌ Ошибка при создании заявки.\n"

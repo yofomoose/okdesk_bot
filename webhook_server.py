@@ -280,6 +280,7 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
     """Уведомление пользователя о смене статуса"""
     from bot import bot  # Импортируем бота
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from database.crud import IssueService
     
     status_text = config.ISSUE_STATUS_MESSAGES.get(new_status, new_status)
     
@@ -320,15 +321,38 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
-    try:
-        await bot.send_message(
-            chat_id=issue.telegram_user_id,
-            text=message,
-            reply_markup=keyboard
-        )
-        print(f"✅ Уведомление о смене статуса отправлено пользователю {issue.telegram_user_id}")
-    except Exception as e:
-        print(f"❌ Failed to send status notification: {e}")
+    # Пытаемся обновить существующее сообщение о заявке
+    message_updated = False
+    if issue.telegram_message_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=issue.telegram_user_id,
+                message_id=issue.telegram_message_id,
+                text=message,
+                reply_markup=keyboard
+            )
+            print(f"✅ Обновлено существующее сообщение о заявке {issue.id} (message_id={issue.telegram_message_id})")
+            message_updated = True
+        except Exception as e:
+            print(f"⚠️ Не удалось обновить существующее сообщение: {e}")
+    
+    # Если не удалось обновить существующее сообщение, отправляем новое уведомление
+    if not message_updated:
+        try:
+            sent_message = await bot.send_message(
+                chat_id=issue.telegram_user_id,
+                text=message,
+                reply_markup=keyboard
+            )
+            
+            # Сохраняем ID нового сообщения для будущих обновлений
+            if sent_message and sent_message.message_id:
+                IssueService.update_issue_message_id(issue.id, sent_message.message_id)
+                print(f"✅ Отправлено новое уведомление и сохранен message_id={sent_message.message_id} для заявки {issue.id}")
+            else:
+                print(f"✅ Отправлено новое уведомление о смене статуса для заявки {issue.id}")
+        except Exception as e:
+            print(f"❌ Failed to send status notification: {e}")
 
 async def notify_user_new_comment(issue, content: str, author: Dict):
     """Уведомление пользователя о новом комментарии"""
