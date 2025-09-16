@@ -117,8 +117,11 @@ class PortalURLGenerator:
                 
                 # Если указан redirect_url, добавляем его к ссылке
                 if redirect_url:
-                    # Убираем ведущий слеш из redirect_url если он есть
-                    redirect_clean = redirect_url.lstrip('/')
+                    # Убеждаемся что redirect_url начинается со слеша
+                    if not redirect_url.startswith('/'):
+                        redirect_clean = f"/{redirect_url}"
+                    else:
+                        redirect_clean = redirect_url
                     # Добавляем параметр redirect к URL
                     if '?' in login_url:
                         final_url = f"{login_url}&redirect={redirect_clean}"

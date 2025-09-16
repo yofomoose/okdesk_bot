@@ -54,6 +54,7 @@ class Issue(Base):
     # Ссылки и идентификаторы
     okdesk_url = Column(String, nullable=True)
     issue_number = Column(String, nullable=True)
+    telegram_message_id = Column(Integer, nullable=True)  # ID сообщения в Telegram с деталями заявки
     
     # Оценка качества работы (1-5 звезд)
     rating = Column(Integer, nullable=True)

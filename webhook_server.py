@@ -111,24 +111,36 @@ async def handle_issue_created(data: Dict[str, Any]):
 
 async def handle_issue_updated(data: Dict[str, Any]):
     """Обработка обновления заявки"""
+    print(f"🔄 Обработка обновления заявки: {json.dumps(data, indent=2, ensure_ascii=False)}")
+
     issue_id = data.get("id")
     if not issue_id:
+        print("❌ Не найден ID заявки в данных обновления")
         return
-    
+
     # Находим заявку в нашей БД
     issue = IssueService.get_issue_by_okdesk_id(issue_id)
     if not issue:
-        print(f"Issue {issue_id} not found in database")
+        print(f"❌ Заявка {issue_id} не найдена в базе данных")
         return
-    
+
     # Обновляем статус, если изменился
     new_status = data.get("status")
     if new_status and new_status != issue.status:
-        IssueService.update_issue_status(issue.id, new_status)
-        
-        # Уведомляем пользователя о смене статуса
-        await notify_user_status_change(issue, new_status)
-    
+        print(f"📊 Статус заявки {issue_id} изменился: {issue.status} -> {new_status}")
+
+        updated_issue = IssueService.update_issue_status(issue.id, new_status)
+        if updated_issue:
+            print(f"✅ Статус заявки {issue_id} обновлен в БД")
+
+            # Уведомляем пользователя о смене статуса
+            await notify_user_status_change(updated_issue, new_status, issue.status)
+            print(f"✅ Пользователь уведомлен об изменении статуса")
+        else:
+            print(f"❌ Не удалось обновить статус заявки {issue_id} в БД")
+    else:
+        print(f"ℹ️ Статус заявки {issue_id} не изменился или не указан")
+
     print(f"Issue {issue_id} updated")
 
 async def handle_comment_created(data: Dict[str, Any]):
@@ -199,6 +211,17 @@ async def handle_comment_created(data: Dict[str, Any]):
     
     print(f"✅ Комментарий добавлен в базу данных")
     
+    # Проверяем, не является ли автор комментария создателем заявки
+    # Если да, то не отправляем уведомление (чтобы избежать спама собственными комментариями)
+    author_contact_id = author_data.get("id")
+    issue_creator = UserService.get_user_by_telegram_id(issue.telegram_user_id)
+    
+    if issue_creator and issue_creator.okdesk_contact_id and author_contact_id:
+        if issue_creator.okdesk_contact_id == author_contact_id:
+            print(f"⚠️ Комментарий оставлен создателем заявки ({author_name}), уведомление не отправляется")
+            print(f"New comment from issue creator: {comment_id}")
+            return
+    
     # Уведомляем пользователя о новом комментарии
     await notify_user_new_comment(issue, content, author_data)
     print(f"✅ Пользователь уведомлен о новом комментарии")
@@ -207,26 +230,51 @@ async def handle_comment_created(data: Dict[str, Any]):
 
 async def handle_status_changed(data: Dict[str, Any]):
     """Обработка смены статуса заявки"""
-    issue_id = data.get("issue_id")
-    new_status = data.get("new_status")
-    old_status = data.get("old_status")
-    
-    if not all([issue_id, new_status]):
+    print(f"🔄 Обработка изменения статуса: {json.dumps(data, indent=2, ensure_ascii=False)}")
+
+    # Пробуем разные форматы данных
+    issue_id = (
+        data.get("issue_id") or
+        data.get("id") or
+        data.get("issue", {}).get("id")
+    )
+
+    new_status = (
+        data.get("new_status") or
+        data.get("status") or
+        data.get("issue", {}).get("status")
+    )
+
+    old_status = (
+        data.get("old_status") or
+        data.get("previous_status") or
+        data.get("old_status")
+    )
+
+    if not issue_id or not new_status:
+        print(f"❌ Недостаточно данных для изменения статуса: issue_id={issue_id}, new_status={new_status}")
         return
-    
+
+    print(f"📊 Изменение статуса заявки {issue_id}: {old_status or 'неизвестен'} -> {new_status}")
+
     # Находим заявку в нашей БД
     issue = IssueService.get_issue_by_okdesk_id(issue_id)
     if not issue:
-        print(f"Issue {issue_id} not found in database")
+        print(f"❌ Заявка {issue_id} не найдена в базе данных")
         return
-    
-    # Обновляем статус
-    IssueService.update_issue_status(issue.id, new_status)
-    
-    # Уведомляем пользователя
-    await notify_user_status_change(issue, new_status, old_status)
-    
-    print(f"Status changed for issue {issue_id}: {old_status} -> {new_status}")
+
+    # Обновляем статус в БД
+    updated_issue = IssueService.update_issue_status(issue.id, new_status)
+    if updated_issue:
+        print(f"✅ Статус заявки {issue_id} обновлен в БД: {new_status}")
+
+        # Уведомляем пользователя
+        await notify_user_status_change(updated_issue, new_status, old_status)
+        print(f"✅ Пользователь уведомлен об изменении статуса")
+    else:
+        print(f"❌ Не удалось обновить статус заявки {issue_id} в БД")
+
+    print(f"Status changed for issue {issue_id}: {old_status or 'unknown'} -> {new_status}")
 
 async def notify_user_status_change(issue, new_status: str, old_status: str = None):
     """Уведомление пользователя о смене статуса"""
