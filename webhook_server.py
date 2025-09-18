@@ -126,6 +126,9 @@ async def handle_issue_updated(data: Dict[str, Any]):
 
     # Обновляем статус, если изменился
     new_status = data.get("status")
+    if isinstance(new_status, dict):
+        new_status = new_status.get("code", new_status)
+    
     if new_status and new_status != issue.status:
         print(f"📊 Статус заявки {issue_id} изменился: {issue.status} -> {new_status}")
 
@@ -209,9 +212,24 @@ async def handle_comment_created(data: Dict[str, Any]):
         is_from_okdesk=True
     )
     
-    print(f"✅ Комментарий добавлен в базу данных")
+    # Проверяем, изменился ли статус заявки при добавлении комментария
+    current_status = issue_data.get("status")
+    if isinstance(current_status, dict):
+        current_status = current_status.get("code", current_status)
     
-    # Проверяем, не является ли автор комментария создателем заявки
+    if current_status and current_status != issue.status:
+        print(f"📊 Статус заявки {issue_id} изменился при добавлении комментария: {issue.status} -> {current_status}")
+        
+        # Обновляем статус в БД
+        updated_issue = IssueService.update_issue_status(issue.id, current_status)
+        if updated_issue:
+            print(f"✅ Статус заявки {issue_id} обновлен в БД через комментарий")
+            
+            # Уведомляем пользователя о смене статуса
+            await notify_user_status_change(updated_issue, current_status, issue.status)
+            print(f"✅ Пользователь уведомлен об изменении статуса через комментарий")
+        else:
+            print(f"❌ Не удалось обновить статус заявки {issue_id} в БД через комментарий")
     # Если да, то не отправляем уведомление (чтобы избежать спама собственными комментариями)
     author_contact_id = author_data.get("id")
     issue_creator = UserService.get_user_by_telegram_id(issue.telegram_user_id)
@@ -286,13 +304,8 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
     
     message = (
         f"📊 Статус заявки #{issue.issue_number} изменился\n\n"
-        f"📝 {issue.title}\n"
-        f"🔄 Новый статус: {status_text}"
+        f"📝 {issue.title}"
     )
-    
-    if old_status:
-        old_status_text = config.ISSUE_STATUS_MESSAGES.get(old_status, old_status)
-        message += f"\n⬅️ Предыдущий статус: {old_status_text}"
     
     # Создаем клавиатуру
     keyboard_buttons = []

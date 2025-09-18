@@ -361,8 +361,7 @@ async def process_issue_description(message: Message, state: FSMContext):
             sent_message = await message.answer(
                 f"✅ Заявка успешно создана!\n\n"
                 f"📋 Номер заявки: #{issue_number}\n"
-                f"📝 Заголовок: {title}\n"
-                f"📊 Статус: {config.ISSUE_STATUS_MESSAGES.get('opened', 'Открыта')}\n\n"
+                f"📝 Заголовок: {title}\n\n"
                 f"🌐 Ссылка на заявку в клиентском портале: {okdesk_url}\n\n"
                 f"💡 Перейдите по ссылке, чтобы просмотреть заявку и добавить комментарии через браузер.\n"
                 f"🔐 Вход в портал будет выполнен автоматически.",
@@ -405,10 +404,11 @@ async def show_my_issues(callback: CallbackQuery):
         return
     
     # Разделяем заявки на открытые и закрытые
-    open_statuses = ["opened", "in_progress", "on_hold"]
+    # Открытые - все статусы кроме "resolved" и "closed"
+    open_statuses = ["opened", "in_progress", "on_hold", "pending", "waiting", "assigned", "reopened"]
     closed_statuses = ["resolved", "closed"]
     
-    open_issues = [issue for issue in issues if issue.status in open_statuses]
+    open_issues = [issue for issue in issues if issue.status not in closed_statuses]
     closed_issues = [issue for issue in issues if issue.status in closed_statuses]
     
     # Сортируем по дате создания (новые сверху)
@@ -575,8 +575,7 @@ async def view_issue(callback: CallbackQuery):
             f"📋 Заявка #{issue.issue_number}\n\n"
             f"📝 Заголовок: {issue.title}\n"
             f"📄 Описание: {issue.description or 'Не указано'}\n"
-            f"📊 Статус: {status_text}\n"
-            f"📅 Создана: {issue.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+            f" Создана: {issue.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
             f"🔗 Ссылка на портал: {issue.okdesk_url}",
             reply_markup=keyboard
         )
