@@ -160,6 +160,7 @@ async def handle_comment_created(data: Dict[str, Any]):
     issue_id = issue_data.get("id")
     comment_id = comment_data.get("id")
     content = comment_data.get("content")
+    is_public = comment_data.get("public", True)  # По умолчанию считаем публичным, если поле отсутствует
     
     # Формируем имя автора
     author_name = "Неизвестен"
@@ -173,9 +174,15 @@ async def handle_comment_created(data: Dict[str, Any]):
     print(f"   💬 Комментарий ID: {comment_id}")
     print(f"   📄 Содержимое: {content}")
     print(f"   👤 Автор: {author_name}")
+    print(f"   🌐 Публичный: {is_public}")
     
     if not all([issue_id, comment_id, content]):
         print("❌ Недостаточно данных для обработки комментария")
+        return
+    
+    # Проверяем, является ли комментарий публичным
+    if not is_public:
+        print(f"🔒 Комментарий {comment_id} является внутренним (не публичным), уведомление клиенту не отправляется")
         return
     
     # Находим заявку в нашей БД
