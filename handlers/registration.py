@@ -459,7 +459,15 @@ async def finalize_legal_registration(message_or_callback, state: FSMContext, se
     user = UserService.get_user_by_telegram_id(message_or_callback.from_user.id)
     
     if not user:
-        await message_or_callback.answer("❌ Пользователь не найден. Начните регистрацию заново.")
+        error_msg = "❌ Пользователь не найден. Начните регистрацию заново."
+        if hasattr(message_or_callback, 'message'):
+            await message_or_callback.answer()
+            await message_or_callback.bot.send_message(
+                chat_id=message_or_callback.message.chat.id,
+                text=error_msg
+            )
+        else:
+            await message_or_callback.answer(error_msg)
         await state.clear()
         return
     
@@ -588,9 +596,29 @@ async def finalize_legal_registration(message_or_callback, state: FSMContext, se
                 message_text = "✅ Регистрация завершена!\n\nТеперь можно создавать заявки:"
             
             logger.info(f"Отправляем сообщение длиной {len(message_text)} символов")
-            await message_or_callback.answer(message_text, reply_markup=keyboard)
+            # Отправляем сообщение в зависимости от типа message_or_callback
+            if hasattr(message_or_callback, 'message'):
+                # Это CallbackQuery - сначала отвечаем на callback
+                await message_or_callback.answer()
+                # Затем отправляем сообщение
+                await message_or_callback.bot.send_message(
+                    chat_id=message_or_callback.message.chat.id,
+                    text=message_text,
+                    reply_markup=keyboard
+                )
+            else:
+                # Это Message
+                await message_or_callback.answer(message_text, reply_markup=keyboard)
         else:
-            await message_or_callback.answer("❌ Ошибка при сохранении данных. Попробуйте снова.")
+            error_msg = "❌ Ошибка при сохранении данных. Попробуйте снова."
+            if hasattr(message_or_callback, 'message'):
+                await message_or_callback.answer()
+                await message_or_callback.bot.send_message(
+                    chat_id=message_or_callback.message.chat.id,
+                    text=error_msg
+                )
+            else:
+                await message_or_callback.answer(error_msg)
     
     except Exception as e:
         logger.error(f"Ошибка финализации регистрации: {e}")
@@ -603,7 +631,18 @@ async def finalize_legal_registration(message_or_callback, state: FSMContext, se
         if len(error_message) > 4000:
             error_message = "❌ Произошла ошибка при регистрации.\nПопробуйте снова или обратитесь к администратору."
         
-        await message_or_callback.answer(error_message)
+        # Отправляем сообщение об ошибке в зависимости от типа
+        if hasattr(message_or_callback, 'message'):
+            # Это CallbackQuery - сначала отвечаем на callback
+            await message_or_callback.answer()
+            # Затем отправляем сообщение
+            await message_or_callback.bot.send_message(
+                chat_id=message_or_callback.message.chat.id,
+                text=error_message
+            )
+        else:
+            # Это Message
+            await message_or_callback.answer(error_message)
     
     finally:
         await okdesk_api.close()
