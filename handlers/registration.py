@@ -309,9 +309,27 @@ async def process_inn(message: Message, state: FSMContext):
                 # Создаем клавиатуру с объектами обслуживания
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[])
                 for obj in service_objects[:10]:  # Ограничиваем до 10 объектов
+                    # Используем адрес вместо названия на кнопке
+                    address = obj.get('address', obj.get('name', 'Адрес не указан'))
+                    
+                    # Улучшенная логика обрезания адреса - показываем значимую часть
+                    if len(address) > 45:
+                        # Пытаемся найти улицу и дом в адресе
+                        parts = address.split(', ')
+                        if len(parts) >= 3:
+                            # Показываем последние части адреса (улица, дом)
+                            street_parts = parts[-2:]
+                            display_text = ', '.join(street_parts)
+                            if len(display_text) > 45:
+                                display_text = display_text[:42] + "..."
+                        else:
+                            display_text = address[:42] + "..."
+                    else:
+                        display_text = address
+                    
                     keyboard.inline_keyboard.append([
                         InlineKeyboardButton(
-                            text=f"🏢 {obj['name']}",
+                            text=f"📍 {display_text}",
                             callback_data=f"select_branch_{obj['id']}"
                         )
                     ])
