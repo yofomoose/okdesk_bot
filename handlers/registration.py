@@ -416,6 +416,9 @@ async def process_branch_selection(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     company_id = data.get("company_id")
     
+    # Сохраняем branch_id в состоянии для использования в finalize
+    await state.update_data(branch_id=branch_id)
+    
     # Получаем название объекта по ID
     branch_name = await get_service_object_name_by_id(callback, branch_id, company_id)
     
@@ -425,7 +428,7 @@ async def process_branch_selection(callback: CallbackQuery, state: FSMContext):
     )
     
     # Завершаем регистрацию с выбранным объектом обслуживания
-    await finalize_legal_registration(callback, state, branch_name)
+    await finalize_legal_registration(callback, state, branch_name, branch_id)
 
 @router.callback_query(F.data == "enter_branch_manual", StateFilter(RegistrationStates.waiting_for_branch))
 async def enter_branch_manual(callback: CallbackQuery, state: FSMContext):
@@ -452,7 +455,7 @@ async def process_manual_branch_input(message: Message, state: FSMContext):
     # Завершаем регистрацию с введенным объектом обслуживания
     await finalize_legal_registration(message, state, branch_name)
 
-async def finalize_legal_registration(message_or_callback, state: FSMContext, service_object_name: str):
+async def finalize_legal_registration(message_or_callback, state: FSMContext, service_object_name: str, branch_id: int = None):
     """Финализация регистрации юридического лица с объектом обслуживания"""
     # Получаем данные из состояния
     data = await state.get_data()
@@ -476,6 +479,7 @@ async def finalize_legal_registration(message_or_callback, state: FSMContext, se
     inn = data.get("inn")
     full_name = data.get("full_name")
     phone = data.get("phone")
+    branch_id = data.get("branch_id")
     
     okdesk_api = OkdeskAPI()
     
@@ -518,7 +522,9 @@ async def finalize_legal_registration(message_or_callback, state: FSMContext, se
                     access_level=[
                         'company_issues',  # Отображать заявки компании
                         'allow_close_company_issues'  # Разрешить закрывать заявки компании
-                    ]
+                    ],
+                    # Привязка к объекту обслуживания, если указан
+                    maintenance_entity_ids=[branch_id] if branch_id else []
                 )
                 
                 # Обработка ответа создания контакта
