@@ -562,10 +562,14 @@ async def finalize_legal_registration(message_or_callback, state: FSMContext, se
                 "Теперь можно создавать заявки:"
             )
             
+            logger.info(f"Длина contact_info: {len(contact_info)} символов")
+            logger.info(f"Длина полного сообщения: {len(message_text)} символов")
+            
             # Telegram лимит 4096 символов, оставляем запас
             if len(message_text) > 4000:
-                # Обрезаем contact_info если сообщение слишком длинное
-                contact_info_short = "\n🔗 Контакт создан в Okdesk"
+                logger.warning(f"Сообщение слишком длинное ({len(message_text)} символов), обрезаем contact_info")
+                # Используем короткую версию contact_info
+                contact_info_short = "\n🔗 Контакт создан"
                 message_text = (
                     "✅ Регистрация завершена!\n\n"
                     f"👤 {full_name}\n"
@@ -576,7 +580,14 @@ async def finalize_legal_registration(message_or_callback, state: FSMContext, se
                     f"{contact_info_short}\n\n"
                     "Теперь можно создавать заявки:"
                 )
+                logger.info(f"Сообщение после обрезания: {len(message_text)} символов")
             
+            # Финальная проверка на всякий случай
+            if len(message_text) > 4096:
+                logger.error(f"Сообщение все еще слишком длинное: {len(message_text)} символов")
+                message_text = "✅ Регистрация завершена!\n\nТеперь можно создавать заявки:"
+            
+            logger.info(f"Отправляем сообщение длиной {len(message_text)} символов")
             await message_or_callback.answer(message_text, reply_markup=keyboard)
         else:
             await message_or_callback.answer("❌ Ошибка при сохранении данных. Попробуйте снова.")
