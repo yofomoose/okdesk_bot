@@ -14,6 +14,15 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 
+def truncate_message(text: str, max_length: int = 4000) -> str:
+    """Обрезает сообщение до максимальной длины, сохраняя смысл"""
+    if len(text) <= max_length:
+        return text
+    
+    # Обрезаем с запасом и добавляем троеточие
+    truncated = text[:max_length - 3] + "..."
+    return truncated
+
 async def get_available_service_objects(okdesk_api: OkdeskAPI, company_id: int) -> list:
     """
     Получить доступные объекты обслуживания для компании.
@@ -218,11 +227,11 @@ async def process_phone(message: Message, state: FSMContext):
                         contact_info += "\n🔗 Используйте существующий доступ к порталу"
                         contact_info += f"\n🌐 Клиентский портал: {config.OKDESK_PORTAL_URL}"
                     else:
-                        contact_info = "\n⚠️ Контакт не удалось создать в Okdesk"
+                        contact_info = "\n⚠️ Контакт не удалось создать"
                         
                 except Exception as e:
                     logger.error(f"Ошибка создания контакта в Okdesk: {e}")
-                    contact_info = "\n⚠️ Ошибка при создании контакта в Okdesk"
+                    contact_info = "\n⚠️ Ошибка создания контакта"
                 
                 # Создаем клавиатуру с кнопками быстрого доступа
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -231,14 +240,27 @@ async def process_phone(message: Message, state: FSMContext):
                     [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
                 ])
                 
-                await message.answer(
+                # Формируем и проверяем длину сообщения
+                message_text = (
                     "✅ Регистрация завершена!\n\n"
                     f"👤 ФИО: {updated_user.full_name}\n"
                     f"📱 Телефон: {updated_user.phone}"
                     f"{contact_info}\n\n"
-                    "Теперь вы можете создавать заявки:",
-                    reply_markup=keyboard
+                    "Теперь вы можете создавать заявки:"
                 )
+                
+                # Проверяем длину и обрезаем при необходимости
+                if len(message_text) > 4000:
+                    contact_info_short = "\n🔗 Контакт создан"
+                    message_text = (
+                        "✅ Регистрация завершена!\n\n"
+                        f"👤 ФИО: {updated_user.full_name}\n"
+                        f"📱 Телефон: {updated_user.phone}"
+                        f"{contact_info_short}\n\n"
+                        "Теперь вы можете создавать заявки:"
+                    )
+                
+                await message.answer(message_text, reply_markup=keyboard)
                 await state.clear()  # Очищаем состояние только для физических лиц
             else:
                 await message.answer("❌ Ошибка при сохранении данных. Попробуйте снова.")
@@ -374,10 +396,13 @@ async def process_inn(message: Message, state: FSMContext):
         logger.error(f"Ошибка обработки ИНН: {e}")
         import traceback
         traceback.print_exc()
-        await message.answer(
-            f"❌ Произошла ошибка при обработке ИНН: {str(e)}\n"
-            "Попробуйте снова или обратитесь к администратору."
-        )
+        
+        # Создаем безопасное сообщение об ошибке
+        error_message = f"❌ Произошла ошибка при обработке ИНН: {str(e)}\nПопробуйте снова или обратитесь к администратору."
+        if len(error_message) > 4000:
+            error_message = "❌ Произошла ошибка при обработке ИНН.\nПопробуйте снова или обратитесь к администратору."
+        
+        await message.answer(error_message)
     
     finally:
         await okdesk_api.close()
@@ -502,22 +527,21 @@ async def finalize_legal_registration(message_or_callback, state: FSMContext, se
                     )
                     
                     if auth_code:
-                        contact_info = (f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})\n"
-                                      f"🔐 Код авторизации: {auth_code}\n"
-                                      f"🌐 Веб-портал: {config.OKDESK_PORTAL_URL}")
+                        contact_info = (f"\n🔗 Контакт создан (ID: {contact_id})\n"
+                                      f"🔐 Код: {auth_code}\n"
+                                      f"🌐 Портал: {config.OKDESK_PORTAL_URL}")
                     else:
-                        contact_info = f"\n🔗 Контакт создан в Okdesk (ID: {contact_id})"
+                        contact_info = f"\n🔗 Контакт создан (ID: {contact_id})"
                 elif contact_response and contact_response.get('error') == 422:
                     # Контакт уже существует
-                    contact_info = "\n⚠️ Контакт с таким Telegram username уже существует в Okdesk"
-                    contact_info += "\n🔗 Используйте существующий доступ к порталу"
-                    contact_info += f"\n🌐 Веб-портал: {config.OKDESK_PORTAL_URL}"
+                    contact_info = "\n⚠️ Контакт уже существует"
+                    contact_info += f"\n🌐 Портал: {config.OKDESK_PORTAL_URL}"
                 else:
-                    contact_info = "\n⚠️ Не удалось создать контакт в Okdesk"
+                    contact_info = "\n⚠️ Ошибка создания контакта"
                     
             except Exception as e:
                 logger.error(f"Ошибка создания контакта в Okdesk: {e}")
-                contact_info = "\n⚠️ Ошибка при создании контакта в Okdesk"
+                contact_info = "\n⚠️ Ошибка создания контакта"
             
             # Создаем клавиатуру с кнопками быстрого доступа
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -526,17 +550,34 @@ async def finalize_legal_registration(message_or_callback, state: FSMContext, se
                 [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")]
             ])
             
-            await message_or_callback.answer(
-                "✅ Регистрация юридического лица завершена!\n\n"
-                f"👤 ФИО: {full_name}\n"
-                f"📱 Телефон: {phone}\n"
-                f"🏢 Компания: {company_name}\n"
-                f"🏢 Объект обслуживания: {service_object_name}\n"
+            # Формируем сообщение и проверяем длину
+            message_text = (
+                "✅ Регистрация завершена!\n\n"
+                f"👤 {full_name}\n"
+                f"📱 {phone}\n"
+                f"🏢 {company_name}\n"
+                f"📍 {service_object_name}\n"
                 f"🔢 ИНН: {inn}"
                 f"{contact_info}\n\n"
-                "Теперь вы можете создавать заявки от имени компании:",
-                reply_markup=keyboard
+                "Теперь можно создавать заявки:"
             )
+            
+            # Telegram лимит 4096 символов, оставляем запас
+            if len(message_text) > 4000:
+                # Обрезаем contact_info если сообщение слишком длинное
+                contact_info_short = "\n🔗 Контакт создан в Okdesk"
+                message_text = (
+                    "✅ Регистрация завершена!\n\n"
+                    f"👤 {full_name}\n"
+                    f"📱 {phone}\n"
+                    f"🏢 {company_name}\n"
+                    f"📍 {service_object_name}\n"
+                    f"🔢 ИНН: {inn}"
+                    f"{contact_info_short}\n\n"
+                    "Теперь можно создавать заявки:"
+                )
+            
+            await message_or_callback.answer(message_text, reply_markup=keyboard)
         else:
             await message_or_callback.answer("❌ Ошибка при сохранении данных. Попробуйте снова.")
     
@@ -544,10 +585,14 @@ async def finalize_legal_registration(message_or_callback, state: FSMContext, se
         logger.error(f"Ошибка финализации регистрации: {e}")
         import traceback
         traceback.print_exc()
-        await message_or_callback.answer(
-            f"❌ Произошла ошибка при регистрации: {str(e)}\n"
-            "Попробуйте снова или обратитесь к администратору."
-        )
+        
+        # Создаем безопасное сообщение об ошибке
+        error_message = f"❌ Произошла ошибка при регистрации: {str(e)}\nПопробуйте снова или обратитесь к администратору."
+        # Обрезаем если слишком длинное
+        if len(error_message) > 4000:
+            error_message = "❌ Произошла ошибка при регистрации.\nПопробуйте снова или обратитесь к администратору."
+        
+        await message_or_callback.answer(error_message)
     
     finally:
         await okdesk_api.close()
