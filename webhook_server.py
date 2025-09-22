@@ -129,6 +129,9 @@ async def handle_issue_updated(data: Dict[str, Any]):
     if isinstance(new_status, dict):
         new_status = new_status.get("code", new_status)
     
+    print(f"🔍 Новый статус из webhook: {new_status} (тип: {type(new_status)})")
+    print(f"🔍 Текущий статус в БД: {issue.status}")
+    
     if new_status and new_status != issue.status:
         print(f"📊 Статус заявки {issue_id} изменился: {issue.status} -> {new_status}")
 
@@ -160,7 +163,10 @@ async def handle_comment_created(data: Dict[str, Any]):
     issue_id = issue_data.get("id")
     comment_id = comment_data.get("id")
     content = comment_data.get("content")
-    is_public = comment_data.get("public", True)  # По умолчанию считаем публичным, если поле отсутствует
+    is_public = comment_data.get("public", False)  # По умолчанию считаем не публичным, если поле отсутствует
+    
+    print(f"🔍 Поля comment_data: {list(comment_data.keys())}")
+    print(f"🔍 Значение public: {comment_data.get('public', 'NOT_SET')}")
     
     # Формируем имя автора
     author_name = "Неизвестен"
@@ -317,8 +323,8 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
     # Создаем клавиатуру
     keyboard_buttons = []
     
-    # Если статус изменился на "resolved" (решена), добавляем запрос оценки качества
-    if new_status == "resolved":
+    # Если статус изменился на "resolved" или "closed" (решена/закрыта), добавляем запрос оценки качества
+    if new_status in ["resolved", "closed"]:
         message += "\n\n⭐ Пожалуйста, оцените качество выполненной работы:"
         keyboard_buttons.extend([
             [InlineKeyboardButton(text="⭐⭐⭐⭐⭐ Отлично", callback_data=f"rate_5_{issue.id}")],
