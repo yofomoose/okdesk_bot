@@ -1333,3 +1333,132 @@ class OkdeskAPI:
                 response['portal_password'] = kwargs['password']
         
         return response
+
+    async def get_maintenance_entities(self, company_id: int = None, name: str = None, search_string: str = None) -> List[Dict]:
+        """
+        Получить список объектов обслуживания с возможностью фильтрации
+        
+        Args:
+            company_id: ID компании для фильтрации (если поддерживается API)
+            name: Точное название объекта для поиска
+            search_string: Подстрока для поиска в названии или комментарии
+        
+        Returns:
+            List[Dict]: Список объектов обслуживания
+        """
+        try:
+            # Формируем параметры запроса
+            params = []
+            
+            if name:
+                params.append(f"name={name}")
+            
+            if search_string:
+                params.append(f"search_string={search_string}")
+                
+            # Формируем endpoint с параметрами
+            endpoint = "maintenance_entities"
+            if params:
+                endpoint += "?" + "&".join(params)
+            
+            logger.info(f"🔍 Запрос объектов обслуживания: {endpoint}")
+            
+            # Выполняем запрос
+            response = await self._make_request('GET', endpoint)
+            
+            if response and isinstance(response, list):
+                logger.info(f"✅ Получено {len(response)} объектов обслуживания")
+                
+                # Если указан company_id, фильтруем результат (может не работать в API, фильтруем локально)
+                if company_id:
+                    filtered_objects = []
+                    for obj in response:
+                        # Проверяем привязку к компании (структура может варьироваться)
+                        obj_company_id = obj.get('company_id') or obj.get('company', {}).get('id')
+                        if obj_company_id == company_id:
+                            filtered_objects.append(obj)
+                    
+                    logger.info(f"🔍 После фильтрации по company_id={company_id}: {len(filtered_objects)} объектов")
+                    return filtered_objects
+                    
+                return response
+            else:
+                logger.warning("⚠️ Не удалось получить объекты обслуживания или ответ не является списком")
+                return []
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения объектов обслуживания: {e}")
+            return []
+
+    async def get_maintenance_entities_for_company(self, company_id: int) -> List[Dict]:
+        """
+        Получить объекты обслуживания для конкретной компании
+        Комбинирует поиск через API и анализ заявок
+        
+        Args:
+            company_id: ID компании
+            
+        Returns:
+            List[Dict]: Список объектов обслуживания для компании
+        """
+        try:
+            logger.info(f"🔍 Поиск объектов обслуживания для компании ID={company_id}")
+            
+            # Сначала пробуем получить все объекты обслуживания
+            maintenance_entities = await self.get_maintenance_entities()
+            
+            if maintenance_entities:
+                # Фильтруем по company_id если есть такая информация в объектах
+                company_objects = []
+                for obj in maintenance_entities:
+                    obj_company_id = obj.get('company_id') or obj.get('company', {}).get('id')
+                    if obj_company_id == company_id:
+                        company_objects.append(obj)
+                
+                if company_objects:
+                    logger.info(f"✅ Найдено {len(company_objects)} объектов в maintenance_entities для компании")
+                    return company_objects
+            
+            # Если не нашли через maintenance_entities, ищем через заявки компании
+            logger.info("🔍 Поиск объектов через заявки компании...")
+            
+            # Получаем заявки компании для анализа объектов обслуживания
+            issues = await self._make_request('GET', f'issues/list?company_id={company_id}')
+            
+            if not issues or not isinstance(issues, list):
+                # Пробуем альтернативный запрос
+                all_issues = await self._make_request('GET', 'issues/list')
+                if all_issues and isinstance(all_issues, list):
+                    issues = [issue for issue in all_issues 
+                             if issue.get('company', {}).get('id') == company_id]
+                else:
+                    issues = []
+            
+            if issues:
+                # Собираем уникальные объекты обслуживания из заявок
+                service_objects = {}
+                
+                for issue in issues:
+                    service_obj = issue.get('service_object')
+                    if service_obj and isinstance(service_obj, dict):
+                        obj_id = service_obj.get('id')
+                        if obj_id and obj_id not in service_objects:
+                            service_objects[obj_id] = {
+                                'id': obj_id,
+                                'name': service_obj.get('name', f'Объект {obj_id}'),
+                                'active': True,
+                                'comment': service_obj.get('comment', ''),
+                                'company_id': company_id,
+                                'found_in_issue': issue.get('id')
+                            }
+                
+                result = list(service_objects.values())
+                logger.info(f"✅ Найдено {len(result)} объектов обслуживания через заявки компании")
+                return result
+            
+            logger.warning(f"⚠️ Не найдено объектов обслуживания для компании ID={company_id}")
+            return []
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка поиска объектов обслуживания для компании: {e}")
+            return []

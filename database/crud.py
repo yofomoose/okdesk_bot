@@ -68,7 +68,7 @@ class UserService:
             db.close()
     
     @staticmethod
-    def update_user_legal(user_id: int, inn_company: str, company_id: int = None, company_name: str = None) -> Optional[User]:
+    def update_user_legal(user_id: int, inn_company: str, company_id: int = None, company_name: str = None, service_object_name: str = None) -> Optional[User]:
         """Обновить данные юридического лица"""
         db = SessionLocal()
         try:
@@ -78,6 +78,7 @@ class UserService:
                 user.inn_company = inn_company
                 user.company_id = company_id
                 user.company_name = company_name
+                user.service_object_name = service_object_name
                 user.is_registered = True
                 db.commit()
                 db.refresh(user)

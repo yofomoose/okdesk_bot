@@ -33,6 +33,7 @@ class User(Base):
     inn_company = Column(String, nullable=True)
     company_id = Column(Integer, nullable=True)  # ID компании в Okdesk
     company_name = Column(String, nullable=True)
+    service_object_name = Column(String, nullable=True)  # Название объекта обслуживания
     
     # Дополнительные поля
     is_registered = Column(Boolean, default=False)
