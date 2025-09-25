@@ -80,7 +80,10 @@ ISSUE_STATUS_MESSAGES = {
 RATING_REQUEST_STATUSES = [
     "resolved", "closed", "completed", "done", "finished", "solved",
     # Дополнительные статусы согласно API Okdesk
-    "solved", "complete", "finish", "close"
+    "solved", "complete", "finish", "close",
+    # Русские названия статусов
+    "решена", "решено", "закрыта", "закрыто", "выполнена", "выполнено",
+    "завершена", "завершено", "готово", "завершен", "решен"
 ]
 
 # Маппинг статусов Okdesk (code -> display name)
@@ -96,7 +99,16 @@ OKDESK_STATUS_MAPPING = {
     "pending": "on_hold",
     "done": "completed",
     "finished": "completed",
-    "solved": "resolved"
+    "solved": "resolved",
+    # Русские названия статусов
+    "Решена": "resolved",
+    "Закрыта": "closed", 
+    "Выполнена": "completed",
+    "Завершена": "completed",
+    "Решено": "resolved",
+    "Закрыто": "closed",
+    "Выполнено": "completed",
+    "Завершено": "completed"
 }
 
 # Текст запроса оценки

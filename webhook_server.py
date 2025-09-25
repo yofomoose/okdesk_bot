@@ -8,6 +8,7 @@ from database.crud import IssueService, CommentService, UserService
 from models.database import create_tables
 from services.okdesk_api import OkdeskAPI
 import config
+import re
 
 # Инициализируем базу данных при запуске (подключаемся к общей базе)
 try:
@@ -167,125 +168,131 @@ async def handle_issue_updated(data: Dict[str, Any]):
 
 async def handle_comment_created(data: Dict[str, Any]):
     """Обработка создания комментария"""
-    print(f"🔍 Полные данные комментария: {json.dumps(data, indent=2, ensure_ascii=False)}")
-    
-    # Извлекаем данные из структуры webhook
-    event_data = data.get("event", data)
-    issue_data = data.get("issue", {})
-    comment_data = event_data.get("comment", {})
-    author_data = event_data.get("author", {})
-    
-    print(f"🔍 event_data keys: {list(event_data.keys())}")
-    print(f"🔍 issue_data keys: {list(issue_data.keys())}")
-    print(f"🔍 comment_data keys: {list(comment_data.keys())}")
-    
-    # Получаем ID и содержимое
-    issue_id = issue_data.get("id")
-    comment_id = comment_data.get("id")
-    content = comment_data.get("content")
-    is_public = comment_data.get("is_public", False)  # По умолчанию считаем не публичным, если поле отсутствует
-    
-    # Обрабатываем разные форматы поля public
-    if isinstance(is_public, str):
-        is_public = is_public.lower() in ('true', '1', 'yes', 'on')
-    elif is_public is None:
-        is_public = False
-    
-    print(f"🔍 Поля comment_data: {list(comment_data.keys())}")
-    print(f"🔍 Значение public (raw): {comment_data.get('is_public', 'NOT_SET')}")
-    print(f"🔍 Значение public (processed): {is_public}")
-    print(f"🔍 Тип значения public: {type(comment_data.get('is_public'))}")
-    
-    # Формируем имя автора
-    author_name = "Неизвестен"
-    if author_data:
-        first_name = author_data.get("first_name", "")
-        last_name = author_data.get("last_name", "")
-        author_name = f"{first_name} {last_name}".strip()
-    
-    print(f"📝 Получен комментарий:")
-    print(f"   🎫 Заявка ID: {issue_id}")
-    print(f"   💬 Комментарий ID: {comment_id}")
-    print(f"   📄 Содержимое: {content}")
-    print(f"   👤 Автор: {author_name}")
-    print(f"   🌐 Публичный: {is_public}")
-    
-    if not all([issue_id, comment_id, content]):
-        print("❌ Недостаточно данных для обработки комментария")
-        return
-    
-    # Проверяем, является ли комментарий публичным
-    if not is_public:
-        print(f"🔒 Комментарий {comment_id} является внутренним (не публичным), уведомление клиенту не отправляется")
-        return
-    
-    # Находим заявку в нашей БД
-    issue = IssueService.get_issue_by_okdesk_id(issue_id)
-    if not issue:
-        print(f"❌ Заявка {issue_id} не найдена в базе данных")
+    try:
+        print(f"🔍 Полные данные комментария: {json.dumps(data, indent=2, ensure_ascii=False)}")
         
-        # Отладочная информация
-        print(f"🔍 Ищем в базе данных по пути: {config.DATABASE_URL}")
-        all_issues = IssueService.get_all_issues()
-        print(f"📊 Всего заявок в БД: {len(all_issues)}")
-        if all_issues:
-            print("📋 Последние заявки в БД:")
-            for i in all_issues[-3:]:  # Показываем последние 3
-                print(f"   - ID: {i.okdesk_issue_id}, Title: {i.title}")
+        # Извлекаем данные из структуры webhook
+        event_data = data.get("event", data)
+        issue_data = data.get("issue", {})
+        comment_data = event_data.get("comment", {})
+        author_data = event_data.get("author", {})
         
-        return
-    
-    print(f"✅ Заявка найдена в БД: {issue.title}")
-    
-    # Проверяем, не наш ли это комментарий (чтобы избежать дублирования)
-    existing_comments = CommentService.get_issue_comments(issue.id)
-    for comment in existing_comments:
-        if comment.okdesk_comment_id == comment_id:
-            print(f"⚠️ Комментарий {comment_id} уже существует")
+        print(f"🔍 event_data keys: {list(event_data.keys())}")
+        print(f"🔍 issue_data keys: {list(issue_data.keys())}")
+        print(f"🔍 comment_data keys: {list(comment_data.keys())}")
+        
+        # Получаем ID и содержимое
+        issue_id = issue_data.get("id")
+        comment_id = comment_data.get("id")
+        content = comment_data.get("content")
+        is_public = comment_data.get("is_public", False)  # По умолчанию считаем не публичным, если поле отсутствует
+        
+        # Обрабатываем разные форматы поля public
+        if isinstance(is_public, str):
+            is_public = is_public.lower() in ('true', '1', 'yes', 'on')
+        elif is_public is None:
+            is_public = False
+        
+        print(f"🔍 Поля comment_data: {list(comment_data.keys())}")
+        print(f"🔍 Значение public (raw): {comment_data.get('is_public', 'NOT_SET')}")
+        print(f"🔍 Значение public (processed): {is_public}")
+        print(f"🔍 Тип значения public: {type(comment_data.get('is_public'))}")
+        
+        # Формируем имя автора
+        author_name = "Неизвестен"
+        if author_data:
+            first_name = author_data.get("first_name", "")
+            last_name = author_data.get("last_name", "")
+            author_name = f"{first_name} {last_name}".strip()
+        
+        print(f"📝 Получен комментарий:")
+        print(f"   🎫 Заявка ID: {issue_id}")
+        print(f"   💬 Комментарий ID: {comment_id}")
+        print(f"   📄 Содержимое (очищенное): {clean_html_content(content)[:100]}{'...' if len(clean_html_content(content)) > 100 else ''}")
+        print(f"   👤 Автор: {author_name}")
+        print(f"   🌐 Публичный: {is_public}")
+        
+        if not all([issue_id, comment_id, content]):
+            print("❌ Недостаточно данных для обработки комментария")
             return
-    
-    # Добавляем комментарий в БД
-    CommentService.add_comment(
-        issue_id=issue.id,
-        telegram_user_id=issue.telegram_user_id,
-        content=content,
-        okdesk_comment_id=comment_id,
-        is_from_okdesk=True
-    )
-    
-    # Проверяем, изменился ли статус заявки при добавлении комментария
-    current_status = issue_data.get("status")
-    if isinstance(current_status, dict):
-        current_status = current_status.get("code", current_status)
-    
-    if current_status and current_status != issue.status:
-        print(f"📊 Статус заявки {issue_id} изменился при добавлении комментария: {issue.status} -> {current_status}")
         
-        # Обновляем статус в БД
-        updated_issue = IssueService.update_issue_status(issue.id, current_status)
-        if updated_issue:
-            print(f"✅ Статус заявки {issue_id} обновлен в БД через комментарий")
+        # Проверяем, является ли комментарий публичным
+        if not is_public:
+            print(f"🔒 Комментарий {comment_id} является внутренним (не публичным), уведомление клиенту не отправляется")
+            return
+        
+        # Находим заявку в нашей БД
+        issue = IssueService.get_issue_by_okdesk_id(issue_id)
+        if not issue:
+            print(f"❌ Заявка {issue_id} не найдена в базе данных")
             
-            # Уведомляем пользователя о смене статуса
-            await notify_user_status_change(updated_issue, current_status, issue.status)
-            print(f"✅ Пользователь уведомлен об изменении статуса через комментарий")
-        else:
-            print(f"❌ Не удалось обновить статус заявки {issue_id} в БД через комментарий")
-    # Если да, то не отправляем уведомление (чтобы избежать спама собственными комментариями)
-    author_contact_id = author_data.get("id")
-    issue_creator = UserService.get_user_by_telegram_id(issue.telegram_user_id)
-    
-    if issue_creator and issue_creator.okdesk_contact_id and author_contact_id:
-        if issue_creator.okdesk_contact_id == author_contact_id:
-            print(f"⚠️ Комментарий оставлен создателем заявки ({author_name}), уведомление не отправляется")
-            print(f"New comment from issue creator: {comment_id}")
+            # Отладочная информация
+            print(f"🔍 Ищем в базе данных по пути: {config.DATABASE_URL}")
+            all_issues = IssueService.get_all_issues()
+            print(f"📊 Всего заявок в БД: {len(all_issues)}")
+            if all_issues:
+                print("📋 Последние заявки в БД:")
+                for i in all_issues[-3:]:  # Показываем последние 3
+                    print(f"   - ID: {i.okdesk_issue_id}, Title: {i.title}")
+            
             return
-    
-    # Уведомляем пользователя о новом комментарии
-    await notify_user_new_comment(issue, content, author_data)
-    print(f"✅ Пользователь уведомлен о новом комментарии")
-    
-    print(f"New comment from Okdesk: {comment_id}")
+        
+        print(f"✅ Заявка найдена в БД: {issue.title}")
+        
+        # Проверяем, не наш ли это комментарий (чтобы избежать дублирования)
+        existing_comments = CommentService.get_issue_comments(issue.id)
+        for comment in existing_comments:
+            if comment.okdesk_comment_id == comment_id:
+                print(f"⚠️ Комментарий {comment_id} уже существует")
+                return
+        
+        # Добавляем комментарий в БД
+        CommentService.add_comment(
+            issue_id=issue.id,
+            telegram_user_id=issue.telegram_user_id,
+            content=content,
+            okdesk_comment_id=comment_id,
+            is_from_okdesk=True
+        )
+        
+        # Проверяем, изменился ли статус заявки при добавлении комментария
+        current_status = issue_data.get("status")
+        if isinstance(current_status, dict):
+            current_status = current_status.get("code", current_status)
+        
+        if current_status and current_status != issue.status:
+            print(f"📊 Статус заявки {issue_id} изменился при добавлении комментария: {issue.status} -> {current_status}")
+            
+            # Обновляем статус в БД
+            updated_issue = IssueService.update_issue_status(issue.id, current_status)
+            if updated_issue:
+                print(f"✅ Статус заявки {issue_id} обновлен в БД через комментарий")
+                
+                # Уведомляем пользователя о смене статуса
+                await notify_user_status_change(updated_issue, current_status, issue.status)
+                print(f"✅ Пользователь уведомлен об изменении статуса через комментарий")
+            else:
+                print(f"❌ Не удалось обновить статус заявки {issue_id} в БД через комментарий")
+        # Если да, то не отправляем уведомление (чтобы избежать спама собственными комментариями)
+        author_contact_id = author_data.get("id")
+        issue_creator = UserService.get_user_by_telegram_id(issue.telegram_user_id)
+        
+        if issue_creator and issue_creator.okdesk_contact_id and author_contact_id:
+            if issue_creator.okdesk_contact_id == author_contact_id:
+                print(f"⚠️ Комментарий оставлен создателем заявки ({author_name}), уведомление не отправляется")
+                print(f"New comment from issue creator: {comment_id}")
+                return
+        
+        # Уведомляем пользователя о новом комментарии
+        await notify_user_new_comment(issue, content, author_data)
+        print(f"✅ Пользователь уведомлен о новом комментарии")
+        
+        print(f"New comment from Okdesk: {comment_id}")
+        
+    except Exception as e:
+        print(f"❌ Ошибка при обработке комментария: {e}")
+        import traceback
+        traceback.print_exc()
 
 async def handle_status_changed(data: Dict[str, Any]):
     """Обработка смены статуса заявки"""
@@ -313,14 +320,23 @@ async def handle_status_changed(data: Dict[str, Any]):
         data.get("previous_state")
     )
     
-    # Обрабатываем статусы (могут быть объектами с полем 'code')
+    # Обрабатываем статусы (могут быть объектами с полем 'code' или 'name')
     new_status = new_status_raw
     if isinstance(new_status_raw, dict):
-        new_status = new_status_raw.get("code", new_status_raw.get("name", str(new_status_raw)))
+        # Проверяем оба поля: code и name
+        new_status = (
+            new_status_raw.get("code") or
+            new_status_raw.get("name") or
+            str(new_status_raw)
+        )
     
     old_status = old_status_raw  
     if isinstance(old_status_raw, dict):
-        old_status = old_status_raw.get("code", old_status_raw.get("name", str(old_status_raw)))
+        old_status = (
+            old_status_raw.get("code") or
+            old_status_raw.get("name") or
+            str(old_status_raw)
+        )
     
     # Применяем маппинг статусов для нормализации
     normalized_new_status = config.OKDESK_STATUS_MAPPING.get(new_status, new_status)
@@ -329,6 +345,8 @@ async def handle_status_changed(data: Dict[str, Any]):
     print(f"🔍 Извлечено: issue_id={issue_id}")
     print(f"🔍 Исходный статус: {new_status_raw} -> нормализованный: {normalized_new_status}")
     print(f"🔍 Предыдущий статус: {old_status_raw} -> нормализованный: {normalized_old_status}")
+    print(f"🔍 OKDESK_STATUS_MAPPING: {config.OKDESK_STATUS_MAPPING}")
+    print(f"🔍 RATING_REQUEST_STATUSES: {config.RATING_REQUEST_STATUSES}")
 
     if not issue_id or not new_status:
         print(f"❌ Недостаточно данных для изменения статуса: issue_id={issue_id}, new_status={new_status}")
@@ -377,8 +395,17 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
     # Создаем клавиатуру
     keyboard_buttons = []
     
+    # Проверяем, нужно ли запрашивать оценку
+    needs_rating = any(status in new_status.lower() for status in config.RATING_REQUEST_STATUSES) or new_status.lower() in config.RATING_REQUEST_STATUSES
+    
+    print(f"⭐ Проверка необходимости оценки для статуса '{new_status}':")
+    print(f"   📋 RATING_REQUEST_STATUSES: {config.RATING_REQUEST_STATUSES}")
+    print(f"   🔍 new_status.lower(): '{new_status.lower()}'")
+    print(f"   ✅ needs_rating: {needs_rating}")
+    
     # Если статус изменился на статус, требующий оценки, добавляем запрос оценки качества
-    if any(status in new_status.lower() for status in config.RATING_REQUEST_STATUSES) or new_status.lower() in config.RATING_REQUEST_STATUSES:
+    if needs_rating:
+        print(f"⭐ ДОБАВЛЯЕМ ЗАПРОС ОЦЕНКИ для статуса '{new_status}'")
         message += config.RATING_REQUEST_TEXT
         keyboard_buttons.extend([
             [InlineKeyboardButton(text="⭐⭐⭐⭐⭐ Отлично (5)", callback_data=f"rate_5_{issue.id}")],
@@ -387,6 +414,8 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
             [InlineKeyboardButton(text="⭐⭐ Плохо (2)", callback_data=f"rate_2_{issue.id}")],
             [InlineKeyboardButton(text="⭐ Ужасно (1)", callback_data=f"rate_1_{issue.id}")]
         ])
+    else:
+        print(f"⭐ ОЦЕНКА НЕ ТРЕБУЕТСЯ для статуса '{new_status}'")
     
     # Добавляем стандартные кнопки
     keyboard_buttons.append([
@@ -441,11 +470,20 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
     
     author_name = author.get("name", "Сотрудник")
     
+    # Очищаем HTML-теги из контента
+    clean_content = clean_html_content(content)
+    
+    # Ограничиваем длину комментария для Telegram
+    max_comment_length = 150
+    truncated_content = clean_content[:max_comment_length]
+    if len(clean_content) > max_comment_length:
+        truncated_content += "..."
+    
     message = (
         f"💬 Новый комментарий к заявке #{issue.issue_number}\n\n"
         f"📝 {issue.title}\n"
         f"👤 От: {author_name}\n"
-        f"💭 Комментарий: {content[:200]}{'...' if len(content) > 200 else ''}\n\n"
+        f"💭 Комментарий: {truncated_content}\n\n"
         f"🔗 Открыть в портале: {issue.okdesk_url}"
     )
     
@@ -458,7 +496,7 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
     ])
     
     print(f"📤 Отправка уведомления пользователю {issue.telegram_user_id} о комментарии к заявке #{issue.issue_number}")
-    print(f"📝 Сообщение: {message[:100]}...")
+    print(f"📝 Очищенный комментарий: {truncated_content[:50]}...")
     print(f"🔘 Кнопки: {[btn.text for row in keyboard.inline_keyboard for btn in row]}")
     
     try:
@@ -474,8 +512,26 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
             print(f"🔘 Количество кнопок в клавиатуре: {len(sent_message.reply_markup.inline_keyboard)}")
     except Exception as e:
         print(f"❌ Failed to send comment notification: {e}")
-        import traceback
-        traceback.print_exc()
+        
+        # Пробуем отправить упрощенное сообщение без клавиатуры
+        try:
+            simple_message = (
+                f"💬 Новый комментарий к заявке #{issue.issue_number}\n\n"
+                f"📝 {issue.title}\n"
+                f"👤 От: {author_name}\n"
+                f"💭 Комментарий: {truncated_content}\n\n"
+                f"🔗 {issue.okdesk_url}"
+            )
+            
+            await bot.send_message(
+                chat_id=issue.telegram_user_id,
+                text=simple_message
+            )
+            print(f"✅ Упрощенное уведомление о комментарии отправлено пользователю {issue.telegram_user_id}")
+        except Exception as e2:
+            print(f"❌ Даже упрощенное уведомление не удалось отправить: {e2}")
+            import traceback
+            traceback.print_exc()
 
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     """Проверка подписи вебхука"""
@@ -489,6 +545,26 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     ).hexdigest()
     
     return hmac.compare_digest(signature, expected_signature)
+
+def clean_html_content(content: str) -> str:
+    """Очистка HTML-тегов из контента для отправки в Telegram"""
+    if not content:
+        return ""
+    
+    # Заменяем блочные теги на пробелы, чтобы избежать склеивания слов
+    content = re.sub(r'</(p|div|br|h[1-6]|li|ul|ol|blockquote)[^>]*>', ' ', content, flags=re.IGNORECASE)
+    
+    # Удаляем все остальные HTML-теги
+    clean_text = re.sub(r'<[^>]+>', '', content)
+    
+    # Удаляем лишние пробелы и переносы строк
+    clean_text = re.sub(r'\n\s*\n', '\n', clean_text)
+    clean_text = re.sub(r'\s+', ' ', clean_text)
+    
+    # Удаляем специальные символы, которые могут вызвать проблемы
+    clean_text = clean_text.replace('\r', '').replace('\t', ' ')
+    
+    return clean_text.strip()
 
 @app.get("/health")
 async def health_check():
