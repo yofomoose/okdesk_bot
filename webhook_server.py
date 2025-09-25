@@ -408,12 +408,16 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
     print(f"🔘 Кнопки: {[btn.text for row in keyboard.inline_keyboard for btn in row]}")
     
     try:
-        await bot.send_message(
+        sent_message = await bot.send_message(
             chat_id=issue.telegram_user_id,
             text=message,
             reply_markup=keyboard
         )
         print(f"✅ Уведомление о комментарии отправлено пользователю {issue.telegram_user_id}")
+        print(f"📨 ID отправленного сообщения: {sent_message.message_id}")
+        print(f"🔘 Клавиатура отправлена: {sent_message.reply_markup is not None}")
+        if sent_message.reply_markup:
+            print(f"🔘 Количество кнопок в клавиатуре: {len(sent_message.reply_markup.inline_keyboard)}")
     except Exception as e:
         print(f"❌ Failed to send comment notification: {e}")
         import traceback
