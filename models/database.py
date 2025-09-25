@@ -60,6 +60,7 @@ class Issue(Base):
     # Оценка качества работы (1-5 звезд)
     rating = Column(Integer, nullable=True)
     rating_comment = Column(Text, nullable=True)
+    rating_requested = Column(Boolean, default=False)  # Был ли отправлен запрос оценки
     
     # Временные метки
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -5,7 +5,7 @@ import json
 import hmac
 import hashlib
 from database.crud import IssueService, CommentService, UserService
-from models.database import create_tables
+from models.database import create_tables, Issue
 from services.okdesk_api import OkdeskAPI
 import config
 import re
@@ -409,9 +409,12 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
     # Проверяем, нужно ли запрашивать оценку
     needs_rating = any(status in new_status.lower() for status in config.RATING_REQUEST_STATUSES) or new_status.lower() in config.RATING_REQUEST_STATUSES
     
-    # НЕ отправляем запрос оценки, если заявка уже была оценена
-    if needs_rating and issue.rating is not None:
-        print(f"⭐ ОЦЕНКА ПРОПУЩЕНА: заявка уже была оценена ({issue.rating}/5)")
+    # НЕ отправляем запрос оценки, если заявка уже была оценена или запрос уже был отправлен
+    if needs_rating and (issue.rating is not None or issue.rating_requested):
+        if issue.rating is not None:
+            print(f"⭐ ОЦЕНКА ПРОПУЩЕНА: заявка уже была оценена ({issue.rating}/5)")
+        else:
+            print(f"⭐ ОЦЕНКА ПРОПУЩЕНА: запрос оценки уже был отправлен")
         needs_rating = False
     
     print(f"⭐ Проверка необходимости оценки для статуса '{new_status}':")
@@ -463,6 +466,7 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
             print(f"⚠️ Не удалось обновить существующее сообщение: {e}")
     
     # Если не удалось обновить существующее сообщение, отправляем новое уведомление
+    sent_message = None
     if not message_updated:
         try:
             sent_message = await bot.send_message(
@@ -479,6 +483,21 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
                 print(f"✅ Отправлено новое уведомление о смене статуса для заявки {issue.id}")
         except Exception as e:
             print(f"❌ Failed to send status notification: {e}")
+    
+    # Если запрос оценки был добавлен и сообщение отправлено успешно, отмечаем что запрос был отправлен
+    if needs_rating and (message_updated or sent_message):
+        try:
+            from models.database import SessionLocal
+            db = SessionLocal()
+            db_issue = db.query(Issue).filter(Issue.id == issue.id).first()
+            if db_issue:
+                db_issue.rating_requested = True
+                db.commit()
+                print(f"✅ Отмечено, что запрос оценки был отправлен для заявки {issue.id}")
+        except Exception as e:
+            print(f"⚠️ Не удалось обновить флаг rating_requested: {e}")
+        finally:
+            db.close()
 
 async def notify_user_new_comment(issue, content: str, author: Dict):
     """Уведомление пользователя о новом комментарии"""
