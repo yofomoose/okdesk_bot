@@ -477,7 +477,7 @@ async def show_open_issues(callback: CallbackQuery):
     issues = IssueService.get_user_issues(user.telegram_id)
     
     open_statuses = ["opened", "in_progress", "on_hold"]
-    closed_statuses = ["resolved", "closed"]
+    closed_statuses = ["resolved", "closed", "completed"]
     
     open_issues = [issue for issue in issues if issue.status in open_statuses]
     closed_issues = [issue for issue in issues if issue.status in closed_statuses]
@@ -498,7 +498,7 @@ async def show_closed_issues(callback: CallbackQuery):
     issues = IssueService.get_user_issues(user.telegram_id)
     
     open_statuses = ["opened", "in_progress", "on_hold"]
-    closed_statuses = ["resolved", "closed"]
+    closed_statuses = ["resolved", "closed", "completed"]
     
     open_issues = [issue for issue in issues if issue.status in open_statuses]
     closed_issues = [issue for issue in issues if issue.status in closed_statuses]
