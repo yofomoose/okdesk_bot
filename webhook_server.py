@@ -79,23 +79,26 @@ async def webhook_handler(request: Request):
                 await handle_issue_created(data.get("issue", event_data))
             elif event == "issue.updated":
                 print(f"🔄 Обработка обновления заявки")
-                await handle_issue_updated(event_data)
+                await handle_issue_updated(data.get("issue", event_data))
+            elif event == "issue.status_changed":
+                print(f"� Обработка изменения статуса заявки")
+                await handle_status_changed(data.get("issue", event_data))
             elif event == "comment.created" or event == "new_comment":
-                print(f"💬 Обработка создания комментария")
+                print(f"� Обработка создания комментария")
                 await handle_comment_created(data)
-            elif event == "issue.status_changed" or "status" in str(event_data).lower():
-                print(f"📊 Обработка изменения статуса (event: {event})")
-                await handle_status_changed(event_data)
             else:
                 print(f"❓ Неизвестное событие: {event}")
                 print(f"📄 Данные события: {json.dumps(event_data, indent=2, ensure_ascii=False)}")
-                # Пробуем обработать как комментарий, если есть признаки
-                if "comment" in str(data).lower() or "content" in data:
-                    print("🔄 Пробуем обработать как комментарий...")
+                
+                # Анализируем структуру данных для автоматического определения типа события
+                if "issue" in data and "status" in str(data.get("issue", {})):
+                    print("🔄 Обнаружены данные о статусе заявки, обрабатываем как изменение статуса...")
+                    await handle_status_changed(data.get("issue", event_data))
+                elif "comment" in str(data).lower() or "content" in str(data).lower():
+                    print("🔄 Обнаружены данные комментария, обрабатываем как комментарий...")
                     await handle_comment_created(data)
-                # Пробуем обработать как изменение статуса
                 elif "status" in str(data).lower() or "state" in str(data).lower():
-                    print("🔄 Пробуем обработать как изменение статуса...")
+                    print("🔄 Обнаружены данные статуса, обрабатываем как изменение статуса...")
                     await handle_status_changed(event_data)
             
             return {"status": "success", "event": event}
@@ -295,7 +298,7 @@ async def handle_status_changed(data: Dict[str, Any]):
         data.get("issue", {}).get("id")
     )
 
-    new_status = (
+    new_status_raw = (
         data.get("new_status") or
         data.get("status") or
         data.get("issue", {}).get("status") or
@@ -303,20 +306,35 @@ async def handle_status_changed(data: Dict[str, Any]):
         data.get("state")
     )
 
-    old_status = (
+    old_status_raw = (
         data.get("old_status") or
         data.get("previous_status") or
         data.get("old_status") or
         data.get("previous_state")
     )
+    
+    # Обрабатываем статусы (могут быть объектами с полем 'code')
+    new_status = new_status_raw
+    if isinstance(new_status_raw, dict):
+        new_status = new_status_raw.get("code", new_status_raw.get("name", str(new_status_raw)))
+    
+    old_status = old_status_raw  
+    if isinstance(old_status_raw, dict):
+        old_status = old_status_raw.get("code", old_status_raw.get("name", str(old_status_raw)))
+    
+    # Применяем маппинг статусов для нормализации
+    normalized_new_status = config.OKDESK_STATUS_MAPPING.get(new_status, new_status)
+    normalized_old_status = config.OKDESK_STATUS_MAPPING.get(old_status, old_status) if old_status else None
 
-    print(f"🔍 Извлечено: issue_id={issue_id}, new_status={new_status}, old_status={old_status}")
+    print(f"🔍 Извлечено: issue_id={issue_id}")
+    print(f"🔍 Исходный статус: {new_status_raw} -> нормализованный: {normalized_new_status}")
+    print(f"🔍 Предыдущий статус: {old_status_raw} -> нормализованный: {normalized_old_status}")
 
     if not issue_id or not new_status:
         print(f"❌ Недостаточно данных для изменения статуса: issue_id={issue_id}, new_status={new_status}")
         return
 
-    print(f"📊 Изменение статуса заявки {issue_id}: {old_status or 'неизвестен'} -> {new_status}")
+    print(f"📊 Изменение статуса заявки {issue_id}: {normalized_old_status or 'неизвестен'} -> {normalized_new_status}")
 
     # Находим заявку в нашей БД
     issue = IssueService.get_issue_by_okdesk_id(issue_id)
@@ -324,18 +342,23 @@ async def handle_status_changed(data: Dict[str, Any]):
         print(f"❌ Заявка {issue_id} не найдена в базе данных")
         return
 
-    # Обновляем статус в БД
-    updated_issue = IssueService.update_issue_status(issue.id, new_status)
+    # Проверяем, действительно ли статус изменился
+    if normalized_new_status == issue.status:
+        print(f"ℹ️ Статус заявки {issue_id} не изменился: {issue.status}")
+        return
+
+    # Обновляем статус в БД (используем нормализованный статус)
+    updated_issue = IssueService.update_issue_status(issue.id, normalized_new_status)
     if updated_issue:
-        print(f"✅ Статус заявки {issue_id} обновлен в БД: {new_status}")
+        print(f"✅ Статус заявки {issue_id} обновлен в БД: {issue.status} -> {normalized_new_status}")
 
         # Уведомляем пользователя
-        await notify_user_status_change(updated_issue, new_status, old_status)
+        await notify_user_status_change(updated_issue, normalized_new_status, normalized_old_status)
         print(f"✅ Пользователь уведомлен об изменении статуса")
     else:
         print(f"❌ Не удалось обновить статус заявки {issue_id} в БД")
 
-    print(f"Status changed for issue {issue_id}: {old_status or 'unknown'} -> {new_status}")
+    print(f"Status changed for issue {issue_id}: {normalized_old_status or 'unknown'} -> {normalized_new_status}")
 
 async def notify_user_status_change(issue, new_status: str, old_status: str = None):
     """Уведомление пользователя о смене статуса"""
@@ -347,22 +370,22 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
     
     message = (
         f"📊 Статус заявки #{issue.issue_number} изменился\n\n"
-        f"📝 {issue.title}"
+        f"📝 {issue.title}\n\n"
+        f"🔄 Новый статус: {status_text}"
     )
     
     # Создаем клавиатуру
     keyboard_buttons = []
     
-    # Если статус изменился на "resolved" или "closed" (решена/закрыта), добавляем запрос оценки качества
-    resolved_statuses = ["resolved", "closed", "completed", "done", "finished", "solved"]
-    if any(status in new_status.lower() for status in resolved_statuses) or new_status.lower() in resolved_statuses:
-        message += "\n\n⭐ Пожалуйста, оцените качество выполненной работы:"
+    # Если статус изменился на статус, требующий оценки, добавляем запрос оценки качества
+    if any(status in new_status.lower() for status in config.RATING_REQUEST_STATUSES) or new_status.lower() in config.RATING_REQUEST_STATUSES:
+        message += config.RATING_REQUEST_TEXT
         keyboard_buttons.extend([
-            [InlineKeyboardButton(text="⭐⭐⭐⭐⭐ Отлично", callback_data=f"rate_5_{issue.id}")],
-            [InlineKeyboardButton(text="⭐⭐⭐⭐ Хорошо", callback_data=f"rate_4_{issue.id}")],
-            [InlineKeyboardButton(text="⭐⭐⭐ Нормально", callback_data=f"rate_3_{issue.id}")],
-            [InlineKeyboardButton(text="⭐⭐ Плохо", callback_data=f"rate_2_{issue.id}")],
-            [InlineKeyboardButton(text="⭐ Ужасно", callback_data=f"rate_1_{issue.id}")]
+            [InlineKeyboardButton(text="⭐⭐⭐⭐⭐ Отлично (5)", callback_data=f"rate_5_{issue.id}")],
+            [InlineKeyboardButton(text="⭐⭐⭐⭐ Хорошо (4)", callback_data=f"rate_4_{issue.id}")],
+            [InlineKeyboardButton(text="⭐⭐⭐ Нормально (3)", callback_data=f"rate_3_{issue.id}")],
+            [InlineKeyboardButton(text="⭐⭐ Плохо (2)", callback_data=f"rate_2_{issue.id}")],
+            [InlineKeyboardButton(text="⭐ Ужасно (1)", callback_data=f"rate_1_{issue.id}")]
         ])
     
     # Добавляем стандартные кнопки
