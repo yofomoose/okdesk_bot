@@ -75,19 +75,28 @@ async def webhook_handler(request: Request):
         
         try:
             if event == "issue.created" or event == "new_ticket":
+                print(f"🎫 Обработка создания заявки")
                 await handle_issue_created(data.get("issue", event_data))
             elif event == "issue.updated":
+                print(f"🔄 Обработка обновления заявки")
                 await handle_issue_updated(event_data)
             elif event == "comment.created" or event == "new_comment":
+                print(f"💬 Обработка создания комментария")
                 await handle_comment_created(data)
-            elif event == "issue.status_changed":
+            elif event == "issue.status_changed" or "status" in str(event_data).lower():
+                print(f"📊 Обработка изменения статуса (event: {event})")
                 await handle_status_changed(event_data)
             else:
-                print(f"❓ Unknown event: {event}")
+                print(f"❓ Неизвестное событие: {event}")
+                print(f"📄 Данные события: {json.dumps(event_data, indent=2, ensure_ascii=False)}")
                 # Пробуем обработать как комментарий, если есть признаки
                 if "comment" in str(data).lower() or "content" in data:
                     print("🔄 Пробуем обработать как комментарий...")
                     await handle_comment_created(data)
+                # Пробуем обработать как изменение статуса
+                elif "status" in str(data).lower() or "state" in str(data).lower():
+                    print("🔄 Пробуем обработать как изменение статуса...")
+                    await handle_status_changed(event_data)
             
             return {"status": "success", "event": event}
         
@@ -289,14 +298,19 @@ async def handle_status_changed(data: Dict[str, Any]):
     new_status = (
         data.get("new_status") or
         data.get("status") or
-        data.get("issue", {}).get("status")
+        data.get("issue", {}).get("status") or
+        data.get("status_id") or
+        data.get("state")
     )
 
     old_status = (
         data.get("old_status") or
         data.get("previous_status") or
-        data.get("old_status")
+        data.get("old_status") or
+        data.get("previous_state")
     )
+
+    print(f"🔍 Извлечено: issue_id={issue_id}, new_status={new_status}, old_status={old_status}")
 
     if not issue_id or not new_status:
         print(f"❌ Недостаточно данных для изменения статуса: issue_id={issue_id}, new_status={new_status}")
@@ -340,7 +354,8 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
     keyboard_buttons = []
     
     # Если статус изменился на "resolved" или "closed" (решена/закрыта), добавляем запрос оценки качества
-    if new_status in ["resolved", "closed"]:
+    resolved_statuses = ["resolved", "closed", "completed", "done", "finished", "solved"]
+    if any(status in new_status.lower() for status in resolved_statuses) or new_status.lower() in resolved_statuses:
         message += "\n\n⭐ Пожалуйста, оцените качество выполненной работы:"
         keyboard_buttons.extend([
             [InlineKeyboardButton(text="⭐⭐⭐⭐⭐ Отлично", callback_data=f"rate_5_{issue.id}")],
