@@ -703,12 +703,22 @@ async def process_comment(message: Message, state: FSMContext):
                     okdesk_comment_id=response.get("id")
                 )
                 
+                # Создаем клавиатуру с кнопками быстрого доступа
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📝 Добавить еще комментарий", callback_data=f"add_comment_{issue.issue_number}")],
+                    [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues"),
+                     InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
+                    [InlineKeyboardButton(text="� Открыть портал", url=config.OKDESK_PORTAL_URL)],
+                    [InlineKeyboardButton(text="�🏠 Главное меню", callback_data="main_menu")]
+                ])
+                
                 await message.answer(
                     f"✅ Комментарий добавлен к заявке #{issue.issue_number}\n\n"
                     f"💬 Ваш комментарий: {comment_text}\n"
                     f"👤 Создан: {comment_source}\n\n"
                     f"📝 Также вы можете комментировать напрямую через веб-портал:\n"
-                    f"🌐 {config.OKDESK_PORTAL_URL}"
+                    f"🌐 {config.OKDESK_PORTAL_URL}",
+                    reply_markup=keyboard
                 )
             else:
                 logger.error(f"❌ Ошибка при добавлении комментария к заявке #{issue.issue_number}")

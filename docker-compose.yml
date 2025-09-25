@@ -15,6 +15,7 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - OKDESK_API_URL=${OKDESK_API_URL}
       - OKDESK_API_TOKEN=${OKDESK_API_TOKEN}
+      - OKDESK_PORTAL_URL=${OKDESK_PORTAL_URL}
       - DATABASE_URL=sqlite:////app/data/okdesk_bot.db
       - WEBHOOK_URL=${WEBHOOK_URL}
       - WEBHOOK_PATH=/okdesk-webhook
@@ -50,6 +51,7 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - OKDESK_API_URL=${OKDESK_API_URL}
       - OKDESK_API_TOKEN=${OKDESK_API_TOKEN}
+      - OKDESK_PORTAL_URL=${OKDESK_PORTAL_URL}
       - DATABASE_URL=sqlite:////app/data/okdesk_bot.db
       - WEBHOOK_URL=${WEBHOOK_URL}
       - WEBHOOK_PATH=/okdesk-webhook

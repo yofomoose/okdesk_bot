@@ -41,6 +41,8 @@ class WebhookData(BaseModel):
 async def webhook_handler(request: Request):
     """Обработчик вебхуков от Okdesk"""
     
+    print(f"🎣 Webhook received at {config.WEBHOOK_PATH}")
+    
     try:
         # Получаем тело запроса
         body = await request.body()
@@ -68,6 +70,8 @@ async def webhook_handler(request: Request):
         event_data = data.get("data", data)
         
         print(f"📊 Event: {event}")
+        print(f"📊 All data keys: {list(data.keys())}")
+        print(f"📊 Event data keys: {list(event_data.keys())}")
         
         try:
             if event == "issue.created" or event == "new_ticket":
@@ -159,14 +163,26 @@ async def handle_comment_created(data: Dict[str, Any]):
     comment_data = event_data.get("comment", {})
     author_data = event_data.get("author", {})
     
+    print(f"🔍 event_data keys: {list(event_data.keys())}")
+    print(f"🔍 issue_data keys: {list(issue_data.keys())}")
+    print(f"🔍 comment_data keys: {list(comment_data.keys())}")
+    
     # Получаем ID и содержимое
     issue_id = issue_data.get("id")
     comment_id = comment_data.get("id")
     content = comment_data.get("content")
     is_public = comment_data.get("public", False)  # По умолчанию считаем не публичным, если поле отсутствует
     
+    # Обрабатываем разные форматы поля public
+    if isinstance(is_public, str):
+        is_public = is_public.lower() in ('true', '1', 'yes', 'on')
+    elif is_public is None:
+        is_public = False
+    
     print(f"🔍 Поля comment_data: {list(comment_data.keys())}")
-    print(f"🔍 Значение public: {comment_data.get('public', 'NOT_SET')}")
+    print(f"🔍 Значение public (raw): {comment_data.get('public', 'NOT_SET')}")
+    print(f"🔍 Значение public (processed): {is_public}")
+    print(f"🔍 Тип значения public: {type(comment_data.get('public'))}")
     
     # Формируем имя автора
     author_name = "Неизвестен"
