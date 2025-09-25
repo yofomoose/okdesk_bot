@@ -171,7 +171,7 @@ async def handle_comment_created(data: Dict[str, Any]):
     issue_id = issue_data.get("id")
     comment_id = comment_data.get("id")
     content = comment_data.get("content")
-    is_public = comment_data.get("public", False)  # По умолчанию считаем не публичным, если поле отсутствует
+    is_public = comment_data.get("is_public", False)  # По умолчанию считаем не публичным, если поле отсутствует
     
     # Обрабатываем разные форматы поля public
     if isinstance(is_public, str):
@@ -180,9 +180,9 @@ async def handle_comment_created(data: Dict[str, Any]):
         is_public = False
     
     print(f"🔍 Поля comment_data: {list(comment_data.keys())}")
-    print(f"🔍 Значение public (raw): {comment_data.get('public', 'NOT_SET')}")
+    print(f"🔍 Значение public (raw): {comment_data.get('is_public', 'NOT_SET')}")
     print(f"🔍 Значение public (processed): {is_public}")
-    print(f"🔍 Тип значения public: {type(comment_data.get('public'))}")
+    print(f"🔍 Тип значения public: {type(comment_data.get('is_public'))}")
     
     # Формируем имя автора
     author_name = "Неизвестен"
