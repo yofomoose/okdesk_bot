@@ -361,18 +361,29 @@ async def handle_status_changed(data: Dict[str, Any]):
         return
 
     # Проверяем, действительно ли статус изменился
-    if normalized_new_status == issue.status:
-        print(f"ℹ️ Статус заявки {issue_id} не изменился: {issue.status}")
-        return
+    status_actually_changed = normalized_new_status != issue.status
+    new_status_is_completion = normalized_new_status.lower() in config.RATING_REQUEST_STATUSES or any(s in normalized_new_status.lower() for s in config.RATING_REQUEST_STATUSES)
 
-    # Обновляем статус в БД (используем нормализованный статус)
+    print(f"🔍 status_actually_changed: {status_actually_changed}")
+    print(f"🔍 new_status_is_completion: {new_status_is_completion}")
+    print(f"🔍 normalized_new_status: '{normalized_new_status}'")
+
+    # Всегда обновляем статус в БД, даже если он "не изменился"
+    # (могут приходить повторные webhook или статусы в разном порядке)
     updated_issue = IssueService.update_issue_status(issue.id, normalized_new_status)
     if updated_issue:
         print(f"✅ Статус заявки {issue_id} обновлен в БД: {issue.status} -> {normalized_new_status}")
 
-        # Уведомляем пользователя
-        await notify_user_status_change(updated_issue, normalized_new_status, normalized_old_status)
-        print(f"✅ Пользователь уведомлен об изменении статуса")
+        # Уведомляем пользователя ОБЯЗАТЕЛЬНО если:
+        # 1. Статус действительно изменился, ИЛИ
+        # 2. Новый статус является завершающим (проверка оценки будет внутри notify_user_status_change)
+        should_notify = status_actually_changed or new_status_is_completion
+        
+        if should_notify:
+            await notify_user_status_change(updated_issue, normalized_new_status, normalized_old_status)
+            print(f"✅ Пользователь уведомлен об изменении статуса")
+        else:
+            print(f"ℹ️ Пропускаем уведомление: статус не изменился и не является завершающим")
     else:
         print(f"❌ Не удалось обновить статус заявки {issue_id} в БД")
 
@@ -398,9 +409,15 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
     # Проверяем, нужно ли запрашивать оценку
     needs_rating = any(status in new_status.lower() for status in config.RATING_REQUEST_STATUSES) or new_status.lower() in config.RATING_REQUEST_STATUSES
     
+    # НЕ отправляем запрос оценки, если заявка уже была оценена
+    if needs_rating and issue.rating is not None:
+        print(f"⭐ ОЦЕНКА ПРОПУЩЕНА: заявка уже была оценена ({issue.rating}/5)")
+        needs_rating = False
+    
     print(f"⭐ Проверка необходимости оценки для статуса '{new_status}':")
     print(f"   📋 RATING_REQUEST_STATUSES: {config.RATING_REQUEST_STATUSES}")
     print(f"   🔍 new_status.lower(): '{new_status.lower()}'")
+    print(f"   ⭐ issue.rating: {issue.rating}")
     print(f"   ✅ needs_rating: {needs_rating}")
     
     # Если статус изменился на статус, требующий оценки, добавляем запрос оценки качества
