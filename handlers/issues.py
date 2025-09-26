@@ -1,4 +1,4 @@
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -362,8 +362,7 @@ async def process_issue_description(message: Message, state: FSMContext):
                 f"✅ Заявка успешно создана!\n\n"
                 f"📋 Номер заявки: #{issue_number}\n"
                 f"📝 Заголовок: {title}\n\n"
-                f"🌐 Ссылка на заявку в клиентском портале: {okdesk_url}\n\n"
-                f"💡 Перейдите по ссылке, чтобы просмотреть заявку и добавить комментарии через браузер.\n"
+                f"💡 Нажмите на кнопку, чтобы просмотреть заявку и добавить комментарии через браузер.\n"
                 f"🔐 Вход в портал будет выполнен автоматически.",
                 reply_markup=keyboard
             )
@@ -613,7 +612,7 @@ async def add_comment_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.message(StateFilter(IssueStates.waiting_for_comment))
-async def process_comment(message: Message, state: FSMContext):
+async def process_comment(message: Message, state: FSMContext, bot: Bot):
     """Обработка комментария с поддержкой медиафайлов"""
     data = await state.get_data()
     issue_id = data["issue_id"]
@@ -646,8 +645,6 @@ async def process_comment(message: Message, state: FSMContext):
             media_info.append(f"📷 Фото ({photo.width}x{photo.height})")
             
             # Скачиваем файл
-            from aiogram import Bot
-            bot = Bot.get_current()
             file_info = await bot.get_file(photo.file_id)
             file_data = await bot.download_file(file_info.file_path)
             
@@ -674,8 +671,6 @@ async def process_comment(message: Message, state: FSMContext):
             media_info.append(f"🎥 Видео ({video.duration}с, {video.file_size} байт)")
             
             # Скачиваем файл
-            from aiogram import Bot
-            bot = Bot.get_current()
             file_info = await bot.get_file(video.file_id)
             file_data = await bot.download_file(file_info.file_path)
             
@@ -702,8 +697,6 @@ async def process_comment(message: Message, state: FSMContext):
             media_info.append(f"📄 {document.file_name} ({document.file_size} байт)")
             
             # Скачиваем файл
-            from aiogram import Bot
-            bot = Bot.get_current()
             file_info = await bot.get_file(document.file_id)
             file_data = await bot.download_file(file_info.file_path)
             
@@ -787,7 +780,7 @@ async def process_comment(message: Message, state: FSMContext):
             # Создаем комментарий от имени найденного или нового контакта
             response = await okdesk_api.add_comment(
                 issue_id=issue.okdesk_issue_id,
-                content=f"{comment_text}\n\n(Отправлено через Telegram бот)",
+                content=f"{comment_text}\n\n(TgBot)",
                 author_id=contact_id,
                 author_type="contact",
                 client_phone=user.phone,  # Передаем телефон для запасного поиска контакта

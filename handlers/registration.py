@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -120,16 +120,27 @@ async def register_legal(callback: CallbackQuery, state: FSMContext):
 async def process_full_name(message: Message, state: FSMContext):
     """Обработка ввода ФИО"""
     await state.update_data(full_name=message.text)
+    
+    # Создаем клавиатуру с кнопкой поделиться номером
+    keyboard = [
+        [KeyboardButton("📱 Поделиться номером", request_contact=True)]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    
     await message.answer(
         "📱 Введите ваш номер телефона:\n"
-        "(в формате +7XXXXXXXXXX или 8XXXXXXXXXX)"
+        "(в формате +7XXXXXXXXXX или 8XXXXXXXXXX)",
+        reply_markup=reply_markup
     )
     await state.set_state(RegistrationStates.waiting_for_phone)
 
 @router.message(StateFilter(RegistrationStates.waiting_for_phone))
 async def process_phone(message: Message, state: FSMContext):
     """Обработка ввода телефона"""
-    phone = message.text.strip()
+    if message.contact:
+        phone = message.contact.phone_number
+    else:
+        phone = message.text.strip()
     
     # Валидация телефона
     if not validate_phone(phone):

@@ -283,9 +283,28 @@ async def handle_comment_created(data: Dict[str, Any]):
                 print(f"New comment from issue creator: {comment_id}")
                 return
         
-        # Уведомляем пользователя о новом комментарии
-        await notify_user_new_comment(issue, content, author_data)
-        print(f"✅ Пользователь уведомлен о новом комментарии")
+        # Проверяем, нужно ли отправлять уведомление о комментарии
+        should_notify_comment = True
+        
+        # Если статус изменился на завершающий и комментарий от исполнителя, не отправляем уведомление о комментарии
+        if current_status and current_status != issue.status:
+            new_status_is_completion = current_status.lower() in config.RATING_REQUEST_STATUSES or any(s in current_status.lower() for s in config.RATING_REQUEST_STATUSES)
+            if new_status_is_completion:
+                # Проверяем, является ли автор комментария исполнителем заявки
+                assignee_data = issue_data.get("assignee", {})
+                assignee_employee = assignee_data.get("employee", {})
+                assignee_id = assignee_employee.get("id")
+                
+                if assignee_id and author_contact_id == assignee_id:
+                    print(f"⚠️ Комментарий при завершении от исполнителя ({author_name}), отдельное уведомление о комментарии не отправляется")
+                    should_notify_comment = False
+        
+        if should_notify_comment:
+            # Уведомляем пользователя о новом комментарии
+            await notify_user_new_comment(issue, content, author_data)
+            print(f"✅ Пользователь уведомлен о новом комментарии")
+        else:
+            print(f"ℹ️ Уведомление о комментарии пропущено (завершение от исполнителя)")
         
         print(f"New comment from Okdesk: {comment_id}")
         
@@ -504,7 +523,17 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
     from bot import bot  # Импортируем бота
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     
-    author_name = author.get("name", "Сотрудник")
+    # Правильно формируем имя автора
+    author_name = "Неизвестен"
+    if author:
+        first_name = author.get("first_name", "")
+        last_name = author.get("last_name", "")
+        full_name = f"{first_name} {last_name}".strip()
+        if full_name:
+            author_name = full_name
+        else:
+            # Если нет first_name/last_name, пробуем поле name
+            author_name = author.get("name", "Сотрудник")
     
     # Очищаем HTML-теги из контента
     clean_content = clean_html_content(content)
@@ -519,12 +548,15 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
         f"💬 Новый комментарий к заявке #{issue.issue_number}\n\n"
         f"📝 {issue.title}\n"
         f"👤 От: {author_name}\n"
-        f"💭 Комментарий: {truncated_content}\n\n"
-        f"🔗 Открыть в портале: {issue.okdesk_url}"
+        f"💭 Комментарий:\n"
+        f"┌─ {'─' * min(len(truncated_content), 30)} ─┐\n"
+        f"│ {truncated_content} │\n"
+        f"└─ {'─' * min(len(truncated_content), 30)} ─┘"
     )
     
     # Создаем клавиатуру с кнопками быстрого доступа
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔗 Открыть в портале", url=issue.okdesk_url)],
         [InlineKeyboardButton(text="📝 Ответить", callback_data=f"add_comment_{issue.issue_number}")],
         [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues"),
          InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
