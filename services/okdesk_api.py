@@ -437,17 +437,20 @@ class OkdeskAPI:
             # Формируем multipart/form-data запрос
             form_data = aiohttp.FormData()
             form_data.add_field('attachment', file_data, filename=filename)
-            form_data.add_field('api_token', self.api_token)
             
             # Загружаем файл
+            url = f"{self.api_url}attachments?api_token={self.api_token}"
+            logger.info(f"📎 URL загрузки: {url}")
+            
             async with aiohttp.ClientSession() as session:
-                url = f"{self.api_url}attachments"
+                logger.info(f"📤 Отправка POST запроса на {url}")
                 
                 async with session.post(url, data=form_data) as resp:
                     response_text = await resp.text()
                     
-                    logger.info(f"Upload response status: {resp.status}")
-                    logger.info(f"Upload response: {response_text}")
+                    logger.info(f"📥 Upload response status: {resp.status}")
+                    logger.info(f"📄 Upload response headers: {dict(resp.headers)}")
+                    logger.info(f"📄 Upload response body: {response_text[:500]}{'...' if len(response_text) > 500 else ''}")
                     
                     if resp.status in [200, 201]:
                         try:
