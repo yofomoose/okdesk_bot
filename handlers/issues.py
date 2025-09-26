@@ -634,7 +634,7 @@ async def process_comment(message: Message, state: FSMContext, bot: Bot):
             return
         
         # Обрабатываем медиафайлы
-        attachments = []
+        files = []
         media_info = []
         
         # Проверяем наличие медиафайлов
@@ -648,22 +648,11 @@ async def process_comment(message: Message, state: FSMContext, bot: Bot):
             file_info = await bot.get_file(photo.file_id)
             file_data = await bot.download_file(file_info.file_path)
             
-            # Загружаем в Okdesk
-            okdesk_api = OkdeskAPI()
-            try:
-                uploaded_file = await okdesk_api.upload_file(
-                    file_path=f"photo_{photo.file_id}.jpg",
-                    file_data=file_data.read(),
-                    filename=f"photo_{photo.file_id}.jpg"
-                )
-                if uploaded_file and 'id' in uploaded_file:
-                    attachments.append({
-                        'id': uploaded_file['id'],
-                        'filename': f"photo_{photo.file_id}.jpg"
-                    })
-                    logger.info(f"✅ Фото загружено: ID={uploaded_file['id']}")
-            finally:
-                await okdesk_api.close()
+            files.append({
+                'filename': f"photo_{photo.file_id}.jpg",
+                'data': file_data.read()
+            })
+            logger.info(f"✅ Фото подготовлено для загрузки: {len(file_data)} байт")
                 
         elif message.video:
             await message.answer("⏳ Загружаю видео...")
@@ -674,22 +663,11 @@ async def process_comment(message: Message, state: FSMContext, bot: Bot):
             file_info = await bot.get_file(video.file_id)
             file_data = await bot.download_file(file_info.file_path)
             
-            # Загружаем в Okdesk
-            okdesk_api = OkdeskAPI()
-            try:
-                uploaded_file = await okdesk_api.upload_file(
-                    file_path=f"video_{video.file_id}.mp4",
-                    file_data=file_data.read(),
-                    filename=f"video_{video.file_id}.mp4"
-                )
-                if uploaded_file and 'id' in uploaded_file:
-                    attachments.append({
-                        'id': uploaded_file['id'],
-                        'filename': f"video_{video.file_id}.mp4"
-                    })
-                    logger.info(f"✅ Видео загружено: ID={uploaded_file['id']}")
-            finally:
-                await okdesk_api.close()
+            files.append({
+                'filename': f"video_{video.file_id}.mp4",
+                'data': file_data.read()
+            })
+            logger.info(f"✅ Видео подготовлено для загрузки: {len(file_data)} байт")
                 
         elif message.document:
             await message.answer("⏳ Загружаю документ...")
@@ -700,31 +678,20 @@ async def process_comment(message: Message, state: FSMContext, bot: Bot):
             file_info = await bot.get_file(document.file_id)
             file_data = await bot.download_file(file_info.file_path)
             
-            # Загружаем в Okdesk
-            okdesk_api = OkdeskAPI()
-            try:
-                uploaded_file = await okdesk_api.upload_file(
-                    file_path=document.file_name,
-                    file_data=file_data.read(),
-                    filename=document.file_name
-                )
-                if uploaded_file and 'id' in uploaded_file:
-                    attachments.append({
-                        'id': uploaded_file['id'],
-                        'filename': document.file_name
-                    })
-                    logger.info(f"✅ Документ загружен: ID={uploaded_file['id']}")
-            finally:
-                await okdesk_api.close()
+            files.append({
+                'filename': document.file_name,
+                'data': file_data.read()
+            })
+            logger.info(f"✅ Документ подготовлен для загрузки: {len(file_data)} байт")
         
         # Формируем текст комментария
         comment_text = message.text or message.caption or ""
-        if not comment_text and not attachments:
+        if not comment_text and not files:
             await message.answer("❌ Пожалуйста, введите текст комментария или прикрепите файл")
             return
         
         # Если только медиафайлы без текста
-        if not comment_text and attachments:
+        if not comment_text and files:
             comment_text = "Прикрепленные файлы"
         
         await message.answer("⏳ Добавляю комментарий...")
@@ -784,7 +751,7 @@ async def process_comment(message: Message, state: FSMContext, bot: Bot):
                 author_id=contact_id,
                 author_type="contact",
                 client_phone=user.phone,  # Передаем телефон для запасного поиска контакта
-                attachments=attachments  # Передаем вложения
+                files=files  # Передаем файлы для загрузки
             )
             
             if response and response.get("id"):

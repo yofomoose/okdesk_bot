@@ -444,13 +444,17 @@ class OkdeskAPI:
             endpoints_and_methods = [
                 (f"{self.api_url}attachments", "POST"),  # /api/v1/attachments POST
                 (f"https://yapomogu55.okdesk.ru/attachments", "POST"),  # /attachments POST
-                (f"https://yapomogu55.okdesk.ru/api/v1/issues/1465/attachments", "POST"),  # к заявке POST
                 (f"{self.api_url}attachments", "PUT"),  # /api/v1/attachments PUT
                 (f"https://yapomogu55.okdesk.ru/upload", "POST"),  # /upload POST
             ]
             
             for url, method in endpoints_and_methods:
                 logger.info(f"📎 Попытка загрузки {method} на URL: {url}")
+                
+                # Создаем новый FormData для каждой попытки
+                form_data = aiohttp.FormData()
+                form_data.add_field('attachment', file_data, filename=filename)
+                form_data.add_field('api_token', self.api_token)
                 
                 async with aiohttp.ClientSession() as session:
                     try:
@@ -503,7 +507,7 @@ class OkdeskAPI:
                          author_id: int = None, author_type: str = None, 
                          author_name: str = None, client_phone: str = None, 
                          contact_auth_code: str = None, contact_id: int = None,
-                         attachments: List[Dict] = None) -> Dict:
+                         attachments: List[Dict] = None, files: List[Dict] = None) -> Dict:
         """
         Добавить комментарий к заявке
         
@@ -517,7 +521,8 @@ class OkdeskAPI:
             client_phone: Телефон клиента для поиска контакта
             contact_auth_code: Код авторизации контакта
             contact_id: ID контакта (приоритетнее чем поиск по телефону)
-            attachments: Список вложений [{id: int, filename: str}]
+            attachments: Список вложений [{id: int, filename: str}] (для уже загруженных файлов)
+            files: Список файлов для загрузки [{filename: str, data: bytes}] (для новых файлов)
         """
         # Если указан contact_id, используем его для автора
         if contact_id:
@@ -623,8 +628,13 @@ class OkdeskAPI:
         if author_name:
             data['author_name'] = author_name
         
-        logger.info(f"📤 Отправляем данные: {data}")
-        response = await self._make_request('POST', endpoint, data)
+        # Если есть файлы для загрузки, используем multipart/form-data
+        if files and len(files) > 0:
+            logger.info(f"📎 Отправляем комментарий с {len(files)} файлами через multipart/form-data")
+            response = await self._send_comment_with_files(endpoint, data, files)
+        else:
+            logger.info(f"📤 Отправляем данные: {data}")
+            response = await self._make_request('POST', endpoint, data)
         
         # Обработка ответа API
         if response:
@@ -632,6 +642,58 @@ class OkdeskAPI:
             return response
         else:
             logger.error(f"❌ Не удалось создать комментарий: {response}")
+            return {}
+    
+    async def _send_comment_with_files(self, endpoint: str, data: Dict, files: List[Dict]) -> Dict:
+        """Отправить комментарий с файлами через multipart/form-data"""
+        try:
+            # Формируем URL
+            url = f"{self.api_url.rstrip('/')}{endpoint}"
+            if '?' not in url:
+                url += f"?api_token={self.api_token}"
+            else:
+                url += f"&api_token={self.api_token}"
+            
+            # Создаем FormData
+            form_data = aiohttp.FormData()
+            
+            # Добавляем текстовые поля
+            for key, value in data.items():
+                if isinstance(value, bool):
+                    form_data.add_field(key, 'true' if value else 'false')
+                else:
+                    form_data.add_field(key, str(value))
+            
+            # Добавляем файлы
+            for i, file_info in enumerate(files):
+                filename = file_info['filename']
+                file_data = file_info['data']
+                form_data.add_field(f'files[{i}]', file_data, filename=filename)
+                logger.info(f"📎 Добавлен файл: {filename} ({len(file_data)} байт)")
+            
+            logger.info(f"📤 Отправляем multipart/form-data на {url}")
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, data=form_data) as resp:
+                    response_text = await resp.text()
+                    
+                    logger.info(f"📥 Response status: {resp.status}")
+                    logger.info(f"📄 Response: {response_text[:500]}{'...' if len(response_text) > 500 else ''}")
+                    
+                    if resp.status in [200, 201]:
+                        try:
+                            response_data = json.loads(response_text)
+                            logger.info(f"✅ Комментарий с файлами создан: {response_data}")
+                            return response_data
+                        except Exception as e:
+                            logger.error(f"❌ Ошибка парсинга ответа: {e}")
+                            return {"success": True}
+                    else:
+                        logger.error(f"❌ Ошибка API {resp.status}: {response_text}")
+                        return {}
+                        
+        except Exception as e:
+            logger.error(f"❌ Ошибка при отправке комментария с файлами: {e}")
             return {}
     
     async def _contact_comment(self, endpoint: str, data: Dict) -> Dict:
@@ -1325,7 +1387,13 @@ class OkdeskAPI:
         logger.info(f"📝 Сохраняем оценку через комментарий: {rating_comment[:100]}...")
         
         # Сохраняем оценку через комментарий (единственный рабочий способ)
-        response = await self.add_comment(issue_id, rating_comment)
+        # Используем системного пользователя для оценки (Manager)
+        response = await self.add_comment(
+            issue_id=issue_id, 
+            content=rating_comment,
+            author_id=5,  # ID Manager из логов
+            author_type="employee"
+        )
         
         if response:
             logger.info(f"✅ Оценка {rating}/5 успешно сохранена через комментарий в заявке {issue_id}")
