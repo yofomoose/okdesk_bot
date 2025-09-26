@@ -681,12 +681,13 @@ async def process_comment(message: Message, state: FSMContext, bot: Bot):
             # Скачиваем файл
             file_info = await bot.get_file(photo.file_id)
             file_data = await bot.download_file(file_info.file_path)
+            file_bytes = file_data.read()
             
             files.append({
                 'filename': f"photo_{photo.file_id}.jpg",
-                'data': file_data.read()
+                'data': file_bytes
             })
-            logger.info(f"✅ Фото подготовлено для загрузки: {len(file_data)} байт")
+            logger.info(f"✅ Фото подготовлено для загрузки: {len(file_bytes)} байт")
                 
         elif message.video:
             await message.answer("⏳ Загружаю видео...")
@@ -696,12 +697,13 @@ async def process_comment(message: Message, state: FSMContext, bot: Bot):
             # Скачиваем файл
             file_info = await bot.get_file(video.file_id)
             file_data = await bot.download_file(file_info.file_path)
+            file_bytes = file_data.read()
             
             files.append({
                 'filename': f"video_{video.file_id}.mp4",
-                'data': file_data.read()
+                'data': file_bytes
             })
-            logger.info(f"✅ Видео подготовлено для загрузки: {len(file_data)} байт")
+            logger.info(f"✅ Видео подготовлено для загрузки: {len(file_bytes)} байт")
                 
         elif message.document:
             await message.answer("⏳ Загружаю документ...")
@@ -711,12 +713,13 @@ async def process_comment(message: Message, state: FSMContext, bot: Bot):
             # Скачиваем файл
             file_info = await bot.get_file(document.file_id)
             file_data = await bot.download_file(file_info.file_path)
+            file_bytes = file_data.read()
             
             files.append({
                 'filename': document.file_name,
-                'data': file_data.read()
+                'data': file_bytes
             })
-            logger.info(f"✅ Документ подготовлен для загрузки: {len(file_data)} байт")
+            logger.info(f"✅ Документ подготовлен для загрузки: {len(file_bytes)} байт")
         
         # Формируем текст комментария
         comment_text = message.text or message.caption or ""

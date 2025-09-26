@@ -550,9 +550,9 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
         f"📝 {issue.title}\n"
         f"👤 От: {author_name}\n"
         f"💭 Комментарий:\n"
-        f"{'─' * min(len(truncated_content), 30)} ─┐\n"
-        f"│ {truncated_content} │\n"
-        f"└─ {'─' * min(len(truncated_content), 30)} ─┘"
+        f"{'─' * 40}\n"
+        f"{truncated_content}\n"
+        f"{'─' * 40}"
     )
     
     # Создаем клавиатуру с кнопками быстрого доступа

@@ -1392,7 +1392,8 @@ class OkdeskAPI:
             issue_id=issue_id, 
             content=rating_comment,
             author_id=5,  # ID Manager из логов
-            author_type="employee"
+            author_type="employee",
+            is_public=False  # Делаем комментарий с оценкой приватным
         )
         
         if response:
