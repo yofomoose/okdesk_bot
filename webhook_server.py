@@ -417,9 +417,10 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
     status_text = config.ISSUE_STATUS_MESSAGES.get(new_status, new_status)
     
     message = (
-        f"📊 Статус заявки #{issue.issue_number} изменился\n\n"
+        f"📊 **Статус заявки обновлен**\n\n"
+        f"📋 **Заявка #{issue.issue_number}**\n"
         f"📝 {issue.title}\n\n"
-        f"🔄 Новый статус: {status_text}"
+        f"🔄 **Новый статус:** {status_text}"
     )
     
     # Создаем клавиатуру
