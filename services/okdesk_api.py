@@ -437,9 +437,10 @@ class OkdeskAPI:
             # Формируем multipart/form-data запрос
             form_data = aiohttp.FormData()
             form_data.add_field('attachment', file_data, filename=filename)
+            form_data.add_field('api_token', self.api_token)
             
             # Загружаем файл
-            url = f"{self.api_url}attachments?api_token={self.api_token}"
+            url = f"{self.api_url}attachments"
             logger.info(f"📎 URL загрузки: {url}")
             
             async with aiohttp.ClientSession() as session:
