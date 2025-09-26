@@ -415,10 +415,61 @@ class OkdeskAPI:
             
         return response if response else {}
     
+    async def upload_file(self, file_path: str, file_data: bytes, filename: str = None) -> Optional[Dict]:
+        """
+        Загрузить файл в Okdesk для дальнейшего прикрепления к заявке или комментарию
+        
+        Args:
+            file_path: Путь к файлу (для определения имени)
+            file_data: Данные файла в байтах
+            filename: Имя файла (если отличается от file_path)
+        
+        Returns:
+            Dict: Информация о загруженном файле или None в случае ошибки
+        """
+        try:
+            # Определяем имя файла
+            if not filename:
+                filename = os.path.basename(file_path) if file_path else 'uploaded_file'
+            
+            logger.info(f"📎 Загружаем файл: {filename} ({len(file_data)} байт)")
+            
+            # Формируем multipart/form-data запрос
+            form_data = aiohttp.FormData()
+            form_data.add_field('attachment', file_data, filename=filename)
+            form_data.add_field('api_token', self.api_token)
+            
+            # Загружаем файл
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.api_url}attachments"
+                
+                async with session.post(url, data=form_data) as resp:
+                    response_text = await resp.text()
+                    
+                    logger.info(f"Upload response status: {resp.status}")
+                    logger.info(f"Upload response: {response_text}")
+                    
+                    if resp.status in [200, 201]:
+                        try:
+                            response_data = json.loads(response_text)
+                            logger.info(f"✅ Файл успешно загружен: {response_data}")
+                            return response_data
+                        except Exception as e:
+                            logger.error(f"❌ Ошибка парсинга ответа загрузки файла: {e}")
+                            return None
+                    else:
+                        logger.error(f"❌ Ошибка загрузки файла: {resp.status} - {response_text}")
+                        return None
+                        
+        except Exception as e:
+            logger.error(f"❌ Ошибка при загрузке файла: {e}")
+            return None
+
     async def add_comment(self, issue_id: int, content: str, is_public: bool = True, 
                          author_id: int = None, author_type: str = None, 
                          author_name: str = None, client_phone: str = None, 
-                         contact_auth_code: str = None, contact_id: int = None) -> Dict:
+                         contact_auth_code: str = None, contact_id: int = None,
+                         attachments: List[Dict] = None) -> Dict:
         """
         Добавить комментарий к заявке
         
@@ -432,6 +483,7 @@ class OkdeskAPI:
             client_phone: Телефон клиента для поиска контакта
             contact_auth_code: Код авторизации контакта
             contact_id: ID контакта (приоритетнее чем поиск по телефону)
+            attachments: Список вложений [{id: int, filename: str}]
         """
         # Если указан contact_id, используем его для автора
         if contact_id:
@@ -442,6 +494,11 @@ class OkdeskAPI:
             'content': content,
             'public': is_public,
         }
+        
+        # Добавляем вложения, если они есть
+        if attachments:
+            data['attachments'] = attachments
+            logger.info(f"📎 Добавляем {len(attachments)} вложений к комментарию")
         
         # Если указан код авторизации контакта
         if contact_auth_code:

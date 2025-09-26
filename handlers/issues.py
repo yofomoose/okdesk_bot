@@ -606,16 +606,17 @@ async def add_comment_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"💬 Добавление комментария к заявке #{issue.issue_number}\n"
         f"📝 {issue.title}\n\n"
-        "Введите текст комментария:"
+        f"Введите текст комментария или прикрепите:\n"
+        f"📷 Фото  🎥 Видео  📄 Документ"
     )
     await state.set_state(IssueStates.waiting_for_comment)
+    await callback.answer()
 
 @router.message(StateFilter(IssueStates.waiting_for_comment))
 async def process_comment(message: Message, state: FSMContext):
-    """Обработка комментария"""
+    """Обработка комментария с поддержкой медиафайлов"""
     data = await state.get_data()
     issue_id = data["issue_id"]
-    comment_text = message.text
     
     # Получаем заявку
     db = SessionLocal()
@@ -626,14 +627,114 @@ async def process_comment(message: Message, state: FSMContext):
             await state.clear()
             return
         
-        await message.answer("⏳ Добавляю комментарий...")
-        
         # Получаем информацию о пользователе
         user = UserService.get_user_by_telegram_id(message.from_user.id)
         if not user:
             await message.answer("❌ Ошибка: пользователь не найден")
             await state.clear()
             return
+        
+        # Обрабатываем медиафайлы
+        attachments = []
+        media_info = []
+        
+        # Проверяем наличие медиафайлов
+        if message.photo:
+            await message.answer("⏳ Загружаю фото...")
+            # Получаем файл наибольшего размера
+            photo = message.photo[-1]
+            media_info.append(f"📷 Фото ({photo.width}x{photo.height})")
+            
+            # Скачиваем файл
+            from aiogram import Bot
+            bot = Bot.get_current()
+            file_info = await bot.get_file(photo.file_id)
+            file_data = await bot.download_file(file_info.file_path)
+            
+            # Загружаем в Okdesk
+            okdesk_api = OkdeskAPI()
+            try:
+                uploaded_file = await okdesk_api.upload_file(
+                    file_path=f"photo_{photo.file_id}.jpg",
+                    file_data=file_data.read(),
+                    filename=f"photo_{photo.file_id}.jpg"
+                )
+                if uploaded_file and 'id' in uploaded_file:
+                    attachments.append({
+                        'id': uploaded_file['id'],
+                        'filename': f"photo_{photo.file_id}.jpg"
+                    })
+                    logger.info(f"✅ Фото загружено: ID={uploaded_file['id']}")
+            finally:
+                await okdesk_api.close()
+                
+        elif message.video:
+            await message.answer("⏳ Загружаю видео...")
+            video = message.video
+            media_info.append(f"🎥 Видео ({video.duration}с, {video.file_size} байт)")
+            
+            # Скачиваем файл
+            from aiogram import Bot
+            bot = Bot.get_current()
+            file_info = await bot.get_file(video.file_id)
+            file_data = await bot.download_file(file_info.file_path)
+            
+            # Загружаем в Okdesk
+            okdesk_api = OkdeskAPI()
+            try:
+                uploaded_file = await okdesk_api.upload_file(
+                    file_path=f"video_{video.file_id}.mp4",
+                    file_data=file_data.read(),
+                    filename=f"video_{video.file_id}.mp4"
+                )
+                if uploaded_file and 'id' in uploaded_file:
+                    attachments.append({
+                        'id': uploaded_file['id'],
+                        'filename': f"video_{video.file_id}.mp4"
+                    })
+                    logger.info(f"✅ Видео загружено: ID={uploaded_file['id']}")
+            finally:
+                await okdesk_api.close()
+                
+        elif message.document:
+            await message.answer("⏳ Загружаю документ...")
+            document = message.document
+            media_info.append(f"📄 {document.file_name} ({document.file_size} байт)")
+            
+            # Скачиваем файл
+            from aiogram import Bot
+            bot = Bot.get_current()
+            file_info = await bot.get_file(document.file_id)
+            file_data = await bot.download_file(file_info.file_path)
+            
+            # Загружаем в Okdesk
+            okdesk_api = OkdeskAPI()
+            try:
+                uploaded_file = await okdesk_api.upload_file(
+                    file_path=document.file_name,
+                    file_data=file_data.read(),
+                    filename=document.file_name
+                )
+                if uploaded_file and 'id' in uploaded_file:
+                    attachments.append({
+                        'id': uploaded_file['id'],
+                        'filename': document.file_name
+                    })
+                    logger.info(f"✅ Документ загружен: ID={uploaded_file['id']}")
+            finally:
+                await okdesk_api.close()
+        
+        # Формируем текст комментария
+        comment_text = message.text or message.caption or ""
+        if not comment_text and not attachments:
+            await message.answer("❌ Пожалуйста, введите текст комментария или прикрепите файл")
+            return
+        
+        # Если только медиафайлы без текста
+        if not comment_text and attachments:
+            comment_text = "Прикрепленные файлы"
+        
+        await message.answer("⏳ Добавляю комментарий...")
         
         # Добавляем комментарий через API Okdesk
         okdesk_api = OkdeskAPI()
@@ -682,19 +783,21 @@ async def process_comment(message: Message, state: FSMContext):
                         await message.answer("❌ Не удалось создать контакт для комментария. Попробуйте позже или обратитесь к администратору.")
                         await state.clear()
                         return
+            
             # Создаем комментарий от имени найденного или нового контакта
             response = await okdesk_api.add_comment(
                 issue_id=issue.okdesk_issue_id,
                 content=f"{comment_text}\n\n(Отправлено через Telegram бот)",
                 author_id=contact_id,
                 author_type="contact",
-                client_phone=user.phone  # Передаем телефон для запасного поиска контакта
+                client_phone=user.phone,  # Передаем телефон для запасного поиска контакта
+                attachments=attachments  # Передаем вложения
             )
-            comment_source = "от вашего имени"
             
             if response and response.get("id"):
                 logger.info(f"✅ Комментарий успешно добавлен к заявке #{issue.issue_number}")
                 logger.info(f"📝 ID комментария: {response.get('id')}")
+                
                 # Сохраняем комментарий в нашей БД
                 CommentService.add_comment(
                     issue_id=issue_id,
@@ -705,21 +808,20 @@ async def process_comment(message: Message, state: FSMContext):
                 
                 # Создаем клавиатуру с кнопками быстрого доступа
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📝 Добавить еще комментарий", callback_data=f"add_comment_{issue.issue_number}")],
-                    [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues"),
-                     InlineKeyboardButton(text="📝 Создать заявку", callback_data="create_issue")],
-                    [InlineKeyboardButton(text="� Открыть портал", url=config.OKDESK_PORTAL_URL)],
-                    [InlineKeyboardButton(text="�🏠 Главное меню", callback_data="main_menu")]
+                    [InlineKeyboardButton(text="📝 Еще комментарий", callback_data=f"add_comment_{issue.issue_number}")],
+                    [InlineKeyboardButton(text="📋 Мои заявки", callback_data="my_issues")],
+                    [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
                 ])
                 
-                await message.answer(
-                    f"✅ Комментарий добавлен к заявке #{issue.issue_number}\n\n"
-                    f"💬 Ваш комментарий: {comment_text}\n"
-                    f"👤 Создан: {comment_source}\n\n"
-                    f"📝 Также вы можете комментировать напрямую через веб-портал:\n"
-                    f"🌐 {config.OKDESK_PORTAL_URL}",
-                    reply_markup=keyboard
-                )
+                # Формируем короткое сообщение об успехе
+                success_msg = f"✅ Комментарий добавлен к заявке #{issue.issue_number}"
+                
+                # Добавляем информацию о прикрепленных файлах
+                if media_info:
+                    success_msg += f"\n� Прикреплено: {', '.join(media_info)}"
+                
+                await message.answer(success_msg, reply_markup=keyboard)
+                
             else:
                 logger.error(f"❌ Ошибка при добавлении комментария к заявке #{issue.issue_number}")
                 logger.error(f"Ответ API: {response}")
@@ -729,9 +831,6 @@ async def process_comment(message: Message, state: FSMContext):
                     if error_details:
                         error_msg += f"\n🔍 Детали: {error_details}"
                         logger.error(f"Детали ошибки: {error_details}")
-                    if "author" in str(response).lower():
-                        error_msg += f"\n👤 Проблема с автором (ID: {user.okdesk_contact_id})"
-                        logger.error(f"Проблема с автором комментария")
                 
                 await message.answer(error_msg)
         finally:
@@ -948,7 +1047,10 @@ async def start_add_comment(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"💬 Добавление комментария к заявке #{issue.issue_number}\n\n"
         f"📝 {issue.title}\n\n"
-        f"Напишите ваш комментарий:"
+        f"Введите текст комментария или прикрепите:\n"
+        f"📷 Фото\n"
+        f"🎥 Видео\n"
+        f"📄 Документ"
     )
     
     # Сохраняем ID заявки в состоянии
