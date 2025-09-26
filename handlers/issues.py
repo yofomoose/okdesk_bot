@@ -403,11 +403,11 @@ async def show_my_issues(callback: CallbackQuery):
         return
     
     # Разделяем заявки на открытые и закрытые
-    # Открытые - все статусы кроме "resolved" и "closed"
-    open_statuses = ["opened", "in_progress", "on_hold", "pending", "waiting", "assigned", "reopened"]
-    closed_statuses = ["resolved", "closed"]
+    # Открытые - активные статусы
+    open_statuses = ["opened", "in_progress", "on_hold"]
+    closed_statuses = ["resolved", "closed", "completed"]
     
-    open_issues = [issue for issue in issues if issue.status not in closed_statuses]
+    open_issues = [issue for issue in issues if issue.status in open_statuses]
     closed_issues = [issue for issue in issues if issue.status in closed_statuses]
     
     # Сортируем по дате создания (новые сверху)

@@ -440,33 +440,63 @@ class OkdeskAPI:
             form_data.add_field('api_token', self.api_token)
             
             # Загружаем файл
-            url = f"{self.api_url}attachments"
-            logger.info(f"📎 URL загрузки: {url}")
+            # Пробуем разные endpoints и методы для загрузки файлов
+            endpoints_and_methods = [
+                (f"{self.api_url}attachments", "POST"),  # /api/v1/attachments POST
+                (f"https://yapomogu55.okdesk.ru/attachments", "POST"),  # /attachments POST
+                (f"https://yapomogu55.okdesk.ru/api/v1/issues/1465/attachments", "POST"),  # к заявке POST
+                (f"{self.api_url}attachments", "PUT"),  # /api/v1/attachments PUT
+                (f"https://yapomogu55.okdesk.ru/upload", "POST"),  # /upload POST
+            ]
             
-            async with aiohttp.ClientSession() as session:
-                logger.info(f"📤 Отправка POST запроса на {url}")
+            for url, method in endpoints_and_methods:
+                logger.info(f"📎 Попытка загрузки {method} на URL: {url}")
                 
-                async with session.post(url, data=form_data) as resp:
-                    response_text = await resp.text()
-                    
-                    logger.info(f"📥 Upload response status: {resp.status}")
-                    logger.info(f"📄 Upload response headers: {dict(resp.headers)}")
-                    logger.info(f"📄 Upload response body: {response_text[:500]}{'...' if len(response_text) > 500 else ''}")
-                    
-                    if resp.status in [200, 201]:
-                        try:
-                            response_data = json.loads(response_text)
-                            logger.info(f"✅ Файл успешно загружен: {response_data}")
-                            return response_data
-                        except Exception as e:
-                            logger.error(f"❌ Ошибка парсинга ответа загрузки файла: {e}")
-                            return None
-                    else:
-                        logger.error(f"❌ Ошибка загрузки файла: {resp.status} - {response_text}")
-                        return None
+                async with aiohttp.ClientSession() as session:
+                    try:
+                        result = None
+                        if method == "POST":
+                            async with session.post(url, data=form_data) as resp:
+                                result = await self._process_upload_response(resp, url, method)
+                        elif method == "PUT":
+                            async with session.put(url, data=form_data) as resp:
+                                result = await self._process_upload_response(resp, url, method)
+                        
+                        if result:
+                            return result  # Возвращаем успешный результат
+                                
+                    except Exception as e:
+                        logger.error(f"❌ Исключение при загрузке {method} на {url}: {e}")
+                        continue
+            
+            # Если ни один вариант не сработал
+            logger.error(f"❌ Все возможные комбинации URL/метод вернули ошибку")
+            return None
                         
         except Exception as e:
             logger.error(f"❌ Ошибка при загрузке файла: {e}")
+            return None
+
+    async def _process_upload_response(self, resp, url, method):
+        """Обрабатывает ответ от сервера при загрузке файла"""
+        response_text = await resp.text()
+        
+        logger.info(f"📥 Upload response status: {resp.status} для {method} {url}")
+        logger.info(f"📄 Upload response headers: {dict(resp.headers)}")
+        logger.info(f"📄 Upload response body: {response_text[:500]}{'...' if len(response_text) > 500 else ''}")
+        
+        if resp.status in [200, 201]:
+            try:
+                response_data = json.loads(response_text)
+                logger.info(f"✅ Файл успешно загружен на {url}: {response_data}")
+                # Сохраняем успешный результат
+                self._last_successful_upload = response_data
+                return response_data
+            except Exception as e:
+                logger.error(f"❌ Ошибка парсинга ответа загрузки файла: {e}")
+                return None
+        else:
+            logger.error(f"❌ Ошибка загрузки файла на {url}: {resp.status} - {response_text}")
             return None
 
     async def add_comment(self, issue_id: int, content: str, is_public: bool = True, 

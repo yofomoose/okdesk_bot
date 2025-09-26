@@ -395,14 +395,14 @@ async def handle_status_changed(data: Dict[str, Any]):
 
         # Уведомляем пользователя ОБЯЗАТЕЛЬНО если:
         # 1. Статус действительно изменился, ИЛИ
-        # 2. Новый статус является завершающим (проверка оценки будет внутри notify_user_status_change)
-        should_notify = status_actually_changed or new_status_is_completion
+        # 2. Новый статус является завершающим И оценка еще не запрашивалась
+        should_notify = status_actually_changed or (new_status_is_completion and not issue.rating_requested)
         
         if should_notify:
             await notify_user_status_change(updated_issue, normalized_new_status, normalized_old_status)
             print(f"✅ Пользователь уведомлен об изменении статуса")
         else:
-            print(f"ℹ️ Пропускаем уведомление: статус не изменился и не является завершающим")
+            print(f"ℹ️ Пропускаем уведомление: статус не изменился и оценка уже запрашивалась")
     else:
         print(f"❌ Не удалось обновить статус заявки {issue_id} в БД")
 
