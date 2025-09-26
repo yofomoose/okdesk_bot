@@ -241,6 +241,15 @@ async def create_issue_start(callback: CallbackQuery, state: FSMContext):
 @router.message(StateFilter(IssueStates.waiting_for_description))
 async def process_issue_description(message: Message, state: FSMContext):
     """Обработка описания заявки"""
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, опишите проблему текстом.\n\n"
+            "💡 **Пример:**\n"
+            "`Не работает принтер HP LaserJet в кабинете 205, горит красная лампочка`\n\n"
+            "📎 Медиафайлы можно прикрепить после создания заявки через комментарии."
+        )
+        return
+    
     description = message.text.strip()
     
     # Автоматически создаем краткий заголовок из описания
