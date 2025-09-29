@@ -815,7 +815,12 @@ async def process_comment(message: Message, state: FSMContext, bot: Bot):
                 
                 # Добавляем информацию о прикрепленных файлах
                 if media_info:
-                    success_msg += f"\n� Прикреплено: {', '.join(media_info)}"
+                    success_msg += f"\n📎 Прикреплено: {', '.join(media_info)}"
+                    # Проверяем, были ли файлы действительно загружены
+                    if response.get("attachments") and len(response.get("attachments", [])) > 0:
+                        success_msg += f"\n✅ Файлы успешно загружены в систему"
+                    else:
+                        success_msg += f"\n⚠️ Файлы сохранены локально, но не загружены в Okdesk (возможно, ограничения API)"
                 
                 await message.answer(success_msg, reply_markup=keyboard)
                 

@@ -628,11 +628,49 @@ class OkdeskAPI:
         if author_name:
             data['author_name'] = author_name
         
-        # Если есть файлы для загрузки, используем multipart/form-data
+        # Если есть файлы для загрузки, используем двухэтапный процесс:
+        # 1. Загружаем файлы отдельно
+        # 2. Создаем комментарий с ссылками на файлы
         if files and len(files) > 0:
-            logger.info(f"📎 Отправляем комментарий с {len(files)} файлами через multipart/form-data")
-            response = await self._send_comment_with_files(endpoint, data, files)
+            logger.info(f"📎 Начинаем двухэтапный процесс отправки комментария с {len(files)} файлами")
+
+            # Этап 1: Загружаем файлы
+            uploaded_files = []
+            for file_info in files:
+                upload_result = await self.upload_file(
+                    file_path=None,
+                    file_data=file_info['data'],
+                    filename=file_info['filename']
+                )
+
+                if upload_result and 'id' in upload_result:
+                    uploaded_files.append({
+                        'id': upload_result['id'],
+                        'filename': file_info['filename']
+                    })
+                    logger.info(f"✅ Файл {file_info['filename']} загружен с ID: {upload_result['id']}")
+                else:
+                    logger.warning(f"⚠️ Не удалось загрузить файл {file_info['filename']}: {upload_result}")
+
+            # Этап 2: Создаем комментарий
+            comment_data = data.copy()
+
+            if uploaded_files:
+                # Если файлы загружены успешно, добавляем их
+                comment_data['attachments'] = [{'id': f['id'], 'filename': f['filename']} for f in uploaded_files]
+                logger.info(f"📤 Создаем комментарий с {len(uploaded_files)} вложениями...")
+            else:
+                # Если файлы не удалось загрузить, создаем комментарий без файлов
+                # но добавляем информацию о том, что файлы были
+                file_names = [f['filename'] for f in files]
+                original_content = comment_data.get('content', '')
+                comment_data['content'] = f"{original_content}\n\n[Прикрепленные файлы (не удалось загрузить): {', '.join(file_names)}]"
+                logger.warning(f"⚠️ Создаем комментарий без файлов. Имена файлов: {file_names}")
+
+            response = await self._make_request('POST', endpoint, comment_data)
+
         else:
+            # Обычный комментарий без файлов
             logger.info(f"📤 Отправляем данные: {data}")
             response = await self._make_request('POST', endpoint, data)
         
@@ -659,19 +697,36 @@ class OkdeskAPI:
             
             # Добавляем текстовые поля
             for key, value in data.items():
-                if isinstance(value, bool):
+                # API Okdesk ожидает поле "comment" вместо "content" для multipart/form-data
+                if key == 'content':
+                    form_data.add_field('comment', str(value))
+                    logger.info(f"📝 Добавлено поле comment: {value[:50]}...")
+                elif isinstance(value, bool):
                     form_data.add_field(key, 'true' if value else 'false')
                 else:
                     form_data.add_field(key, str(value))
             
-            # Добавляем файлы
+            # Добавляем файлы - пробуем разные варианты именования
             for i, file_info in enumerate(files):
                 filename = file_info['filename']
                 file_data = file_info['data']
-                form_data.add_field(f'files[{i}]', file_data, filename=filename)
-                logger.info(f"📎 Добавлен файл: {filename} ({len(file_data)} байт)")
+                
+                # Пробуем разные варианты именования файлов
+                file_field_names = [
+                    f'files[{i}]',           # files[0], files[1], etc.
+                    f'attachments[{i}]',     # attachments[0], attachments[1], etc.
+                    'files[]',               # files[] для массива
+                    'attachments[]',         # attachments[] для массива
+                    f'file_{i}',             # file_0, file_1, etc.
+                    f'attachment_{i}'        # attachment_0, attachment_1, etc.
+                ]
+                
+                # Используем первый вариант, но логируем все попытки
+                form_data.add_field(file_field_names[0], file_data, filename=filename)
+                logger.info(f"📎 Добавлен файл: {filename} ({len(file_data)} байт) как {file_field_names[0]}")
             
             logger.info(f"📤 Отправляем multipart/form-data на {url}")
+            # logger.info(f"📋 Поля формы: {[field.name for field in form_data._fields]}")  # Убрано - вызывает ошибку
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, data=form_data) as resp:
@@ -690,10 +745,63 @@ class OkdeskAPI:
                             return {"success": True}
                     else:
                         logger.error(f"❌ Ошибка API {resp.status}: {response_text}")
+                        
+                        # Если ошибка из-за неправильного имени поля, попробуем другой вариант
+                        if "параметр не указан" in response_text or "parameter" in response_text.lower():
+                            logger.warning("⚠️ Пробуем альтернативный формат отправки файлов...")
+                            return await self._send_comment_with_files_alt(endpoint, data, files)
+                        
                         return {}
                         
         except Exception as e:
             logger.error(f"❌ Ошибка при отправке комментария с файлами: {e}")
+            return {}
+
+    async def _send_comment_with_files_alt(self, endpoint: str, data: Dict, files: List[Dict]) -> Dict:
+        """Альтернативный метод отправки комментария с файлами"""
+        try:
+            logger.info("🔄 Пробуем альтернативный метод отправки файлов...")
+            
+            # Сначала загружаем файлы отдельно
+            uploaded_files = []
+            for file_info in files:
+                upload_result = await self.upload_file(
+                    file_path=None,
+                    file_data=file_info['data'],
+                    filename=file_info['filename']
+                )
+                
+                if upload_result and 'id' in upload_result:
+                    uploaded_files.append({
+                        'id': upload_result['id'],
+                        'filename': file_info['filename']
+                    })
+                    logger.info(f"✅ Файл {file_info['filename']} загружен с ID: {upload_result['id']}")
+                else:
+                    logger.error(f"❌ Не удалось загрузить файл {file_info['filename']}")
+            
+            if not uploaded_files:
+                logger.error("❌ Не удалось загрузить ни один файл")
+                return {}
+            
+            # Создаем комментарий с ссылками на загруженные файлы
+            comment_data = data.copy()
+            comment_data['attachments'] = [{'id': f['id'], 'filename': f['filename']} for f in uploaded_files]
+            
+            logger.info(f"📤 Создаем комментарий с {len(uploaded_files)} вложениями...")
+            
+            # Отправляем обычный JSON запрос с attachments
+            response = await self._make_request('POST', endpoint, comment_data)
+            
+            if response and ('id' in response or 'success' in str(response)):
+                logger.info(f"✅ Комментарий с файлами создан через attachments: {response}")
+                return response
+            else:
+                logger.error(f"❌ Не удалось создать комментарий через attachments: {response}")
+                return {}
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка альтернативного метода: {e}")
             return {}
     
     async def _contact_comment(self, endpoint: str, data: Dict) -> Dict:
