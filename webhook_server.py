@@ -8,6 +8,15 @@ from database.crud import IssueService, CommentService, UserService
 from models.database import create_tables, Issue
 from services.okdesk_api import OkdeskAPI
 import config
+
+# Импорт бота с защитой от исключений
+try:
+    from bot import bot
+    BOT_AVAILABLE = True
+except ImportError:
+    print("⚠️ Bot не доступен в webhook_server")
+    bot = None
+    BOT_AVAILABLE = False
 import re
 
 # Инициализируем базу данных при запуске (подключаемся к общей базе)
@@ -683,15 +692,13 @@ async def send_attachments_to_user(telegram_user_id: int, attachments: List[Dict
         issue_number: Номер заявки для контекста
         issue_id: ID заявки в Okdesk для скачивания вложений
     """
+    if not BOT_AVAILABLE or not bot:
+        print("❌ Bot не доступен для отправки вложений")
+        return
+
     try:
         from aiogram.types import BufferedInputFile, InputMediaPhoto, InputMediaDocument, InputMediaVideo
         import mimetypes
-
-        try:
-            from bot import bot
-        except Exception as e:
-            print(f"❌ Критическая ошибка импорта bot: {e}")
-            return
 
         if not attachments:
             return
