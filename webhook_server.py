@@ -611,7 +611,7 @@ async def notify_user_new_comment(issue, content: str, author: Dict, attachments
         
         # Если есть вложения, скачиваем и отправляем их
         if attachments:
-            await send_attachments_to_user(issue.telegram_user_id, attachments, issue.issue_number, issue_id)
+            await send_attachments_to_user(issue.telegram_user_id, attachments, issue.issue_number, issue.okdesk_issue_id)
             
     except Exception as e:
         print(f"❌ Failed to send comment notification: {e}")
@@ -679,10 +679,11 @@ async def send_attachments_to_user(telegram_user_id: int, attachments: List[Dict
         issue_number: Номер заявки для контекста
         issue_id: ID заявки в Okdesk для скачивания вложений
     """
+    from aiogram.types import BufferedInputFile, InputMediaPhoto, InputMediaDocument, InputMediaVideo
+    import mimetypes
+
     try:
         from bot import bot
-        from aiogram.types import BufferedInputFile, InputMediaPhoto, InputMediaDocument, InputMediaVideo
-        import mimetypes
 
         if not attachments:
             return
