@@ -611,7 +611,7 @@ async def notify_user_new_comment(issue, content: str, author: Dict, attachments
         
         # Если есть вложения, скачиваем и отправляем их
         if attachments:
-            await send_attachments_to_user(issue.telegram_user_id, attachments, issue.issue_number)
+            await send_attachments_to_user(issue.telegram_user_id, attachments, issue.issue_number, issue_id)
             
     except Exception as e:
         print(f"❌ Failed to send comment notification: {e}")
@@ -669,7 +669,7 @@ def clean_html_content(content: str) -> str:
     
     return clean_text.strip()
 
-async def send_attachments_to_user(telegram_user_id: int, attachments: List[Dict], issue_number: str):
+async def send_attachments_to_user(telegram_user_id: int, attachments: List[Dict], issue_number: str, issue_id: int = None):
     """
     Отправляет вложения из комментария пользователю в Telegram
 
@@ -677,6 +677,7 @@ async def send_attachments_to_user(telegram_user_id: int, attachments: List[Dict
         telegram_user_id: ID пользователя в Telegram
         attachments: Список вложений из webhook
         issue_number: Номер заявки для контекста
+        issue_id: ID заявки в Okdesk для скачивания вложений
     """
     from bot import bot
     from aiogram.types import BufferedInputFile, InputMediaPhoto, InputMediaDocument, InputMediaVideo
@@ -706,7 +707,7 @@ async def send_attachments_to_user(telegram_user_id: int, attachments: List[Dict
                     continue
 
                 # Скачиваем файл из Okdesk
-                file_data = await okdesk_api.download_attachment(file_id)
+                file_data = await okdesk_api.download_attachment(file_id, issue_id)
 
                 if not file_data:
                     print(f"❌ Не удалось скачать файл {filename} (ID: {file_id})")

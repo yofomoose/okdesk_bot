@@ -1513,26 +1513,37 @@ class OkdeskAPI:
             client_phone=phone if not contact_id else None
         )
     
-    async def download_attachment(self, attachment_id: int) -> Optional[bytes]:
+    async def download_attachment(self, attachment_id: int, issue_id: int = None) -> Optional[bytes]:
         """
         Скачать вложение по ID
         
         Args:
             attachment_id: ID вложения в Okdesk
+            issue_id: ID заявки (обязательно для вложений заявок)
             
         Returns:
             bytes: Данные файла или None в случае ошибки
         """
         try:
             # Пробуем разные варианты URL для скачивания файлов
-            download_urls = [
+            download_urls = []
+            
+            if issue_id:
+                # Для вложений заявок используем правильный endpoint
+                download_urls.extend([
+                    f"{self.api_url}issues/{issue_id}/attachments/{attachment_id}",  # /api/v1/issues/{issue_id}/attachments/{attachment_id}
+                    f"https://yapomogu55.okdesk.ru/api/v1/issues/{issue_id}/attachments/{attachment_id}",  # Прямой URL
+                ])
+            
+            # Запасные варианты (могут не работать)
+            download_urls.extend([
                 f"{self.api_url}attachments/{attachment_id}",  # /api/v1/attachments/{id}
                 f"{self.api_url}attachments/{attachment_id}/download",  # /api/v1/attachments/{id}/download
                 f"https://yapomogu55.okdesk.ru/attachments/{attachment_id}",  # Прямая ссылка
                 f"https://yapomogu55.okdesk.ru/attachments/{attachment_id}/download",  # Прямая ссылка с download
                 f"https://yapomogu55.okdesk.ru/api/v1/attachments/{attachment_id}",  # API прямая ссылка
                 f"https://yapomogu55.okdesk.ru/api/v1/attachments/{attachment_id}/download",  # API прямая ссылка с download
-            ]
+            ])
 
             params = {'api_token': self.api_token}
 
