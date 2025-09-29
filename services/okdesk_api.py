@@ -1530,22 +1530,29 @@ class OkdeskAPI:
                 f"{self.api_url}attachments/{attachment_id}/download",  # /api/v1/attachments/{id}/download
                 f"https://yapomogu55.okdesk.ru/attachments/{attachment_id}",  # Прямая ссылка
                 f"https://yapomogu55.okdesk.ru/attachments/{attachment_id}/download",  # Прямая ссылка с download
+                f"https://yapomogu55.okdesk.ru/api/v1/attachments/{attachment_id}",  # API прямая ссылка
+                f"https://yapomogu55.okdesk.ru/api/v1/attachments/{attachment_id}/download",  # API прямая ссылка с download
             ]
-            
+
             params = {'api_token': self.api_token}
-            
+
             async with aiohttp.ClientSession() as session:
                 for url in download_urls:
                     try:
                         logger.info(f"📥 Попытка скачивания файла с URL: {url}")
-                        
+
                         async with session.get(url, params=params) as resp:
                             logger.info(f"📥 Ответ: {resp.status}, Content-Type: {resp.headers.get('Content-Type')}")
-                            
+                            logger.info(f"📥 Content-Length: {resp.headers.get('Content-Length', 'unknown')}")
+
                             if resp.status == 200:
                                 # Проверяем, что это файл, а не JSON с ошибкой
                                 content_type = resp.headers.get('Content-Type', '')
-                                if 'application/json' not in content_type:
+                                content_length = resp.headers.get('Content-Length', '0')
+
+                                logger.info(f"📄 Content-Type: {content_type}, Content-Length: {content_length}")
+
+                                if 'application/json' not in content_type and content_length != '0':
                                     file_data = await resp.read()
                                     logger.info(f"✅ Файл успешно скачан: {len(file_data)} байт")
                                     return file_data
@@ -1556,11 +1563,11 @@ class OkdeskAPI:
                             else:
                                 error_text = await resp.text()
                                 logger.warning(f"⚠️ Ошибка скачивания с {url}: {resp.status} - {error_text}")
-                                
+
                     except Exception as e:
                         logger.error(f"❌ Исключение при скачивании с {url}: {e}")
                         continue
-            
+
             logger.error(f"❌ Не удалось скачать файл с ID {attachment_id} ни одним способом")
             return None
             
