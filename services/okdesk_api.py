@@ -432,32 +432,120 @@ class OkdeskAPI:
                                     is_public: bool = True, author_id: int = None,
                                     author_type: str = None) -> Dict:
         """
-        Добавить комментарий к заявке с файлами
-        Поскольку API Okdesk не поддерживает загрузку файлов, используем graceful degradation:
-        создаем комментарий с уведомлением о прикрепленных файлах
+        Добавить комментарий к заявке с файлами через multipart/form-data
+        Согласно документации: https://apidocs.okdesk.ru/apidoc/#!kommentarii-dobavlenie-kommentariya
+
+        Args:
+            issue_id: ID заявки
+            content: Текст комментария
+            files: Список файлов [{filename: str, data: bytes, description?: str}]
+            is_public: Публичный комментарий
+            author_id: ID автора
+            author_type: Тип автора
+
+        Returns:
+            Dict: Ответ API
         """
         try:
-            # Пытаемся загрузить файлы (на случай, если API заработает в будущем)
-            uploaded_attachments = []
+            # Формируем URL согласно документации
+            url = f"{self.api_url}issues/{issue_id}/comments?api_token={self.api_token}"
 
+            # Создаем FormData для multipart/form-data запроса
+            form_data = aiohttp.FormData()
+
+            # Используем формат из документации: comment[field]
+            form_data.add_field('comment[content]', content)
+            form_data.add_field('comment[public]', 'true' if is_public else 'false')
+
+            if author_id and author_type:
+                form_data.add_field('comment[author_id]', str(author_id))
+                form_data.add_field('comment[author_type]', author_type)
+
+            # Добавляем файлы согласно документации: comment[attachments][i][attachment]
             if files:
-                for file_info in files:
-                    attachment = await self.upload_attachment(
-                        file_data=file_info['data'],
-                        filename=file_info['filename']
-                    )
-                    if attachment and 'id' in attachment:
-                        uploaded_attachments.append({
-                            'id': attachment['id'],
-                            'filename': file_info['filename']
-                        })
-                        logger.info(f"✅ Файл {file_info['filename']} загружен с ID: {attachment['id']}")
-                    else:
-                        logger.warning(f"⚠️ Не удалось загрузить файл {file_info['filename']}")
+                for i, file_info in enumerate(files):
+                    filename = file_info['filename']
+                    file_data = file_info['data']
 
-            # Создаем комментарий
+                    # Основное поле файла
+                    attachment_field = f'comment[attachments][{i}][attachment]'
+                    form_data.add_field(
+                        attachment_field,
+                        file_data,
+                        filename=filename
+                    )
+                    logger.info(f"📎 Добавлен файл: {attachment_field} = {filename} ({len(file_data)} байт)")
+
+                    # Опциональное описание файла
+                    description = file_info.get('description', '')
+                    if description:
+                        desc_field = f'comment[attachments][{i}][description]'
+                        form_data.add_field(desc_field, description)
+                        logger.info(f"� Добавлено описание: {desc_field} = {description}")
+
+            logger.info(f"📤 Отправка комментария с {len(files) if files else 0} файлами на {url}")
+
+            # Отправляем запрос с правильными заголовками
+            async with aiohttp.ClientSession() as session:
+                # НЕ устанавливаем Content-Type вручную - aiohttp сделает это автоматически с boundary
+                async with session.post(url, data=form_data) as resp:
+                    response_text = await resp.text()
+
+                    logger.info(f"📥 Response status: {resp.status}")
+                    logger.info(f"📄 Response headers: {dict(resp.headers)}")
+                    logger.info(f"📄 Response: {response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
+
+                    if resp.status in [200, 201]:
+                        try:
+                            response_data = json.loads(response_text)
+
+                            # Проверяем, были ли прикреплены файлы (согласно документации, должны быть в attachments)
+                            if files and response_data.get('attachments'):
+                                logger.info(f"✅ Комментарий создан с {len(response_data['attachments'])} вложениями")
+                                for att in response_data['attachments']:
+                                    logger.info(f"📎 Вложение: {att.get('attachment_file_name')} (ID: {att.get('id')}, размер: {att.get('attachment_file_size')})")
+                            elif files:
+                                logger.warning(f"⚠️ Файлы были отправлены, но не появились в ответе API")
+                                # Создаем уведомление в тексте комментария
+                                logger.info(f"📝 Создаем уведомление о файлах в тексте комментария")
+                            else:
+                                logger.info(f"✅ Комментарий создан без вложений")
+
+                            return response_data
+                        except Exception as e:
+                            logger.error(f"Ошибка парсинга JSON: {e}")
+                            return {"success": True, "response": response_text}
+                    else:
+                        logger.error(f"❌ Ошибка создания комментария: {resp.status}")
+                        # Если API вернул ошибку, пробуем fallback - создать комментарий без файлов
+                        if files:
+                            logger.warning(f"⚠️ Попытка создать комментарий без файлов из-за ошибки API")
+                            return await self._create_comment_fallback(issue_id, content, files, is_public, author_id, author_type)
+                        return {"error": resp.status, "message": response_text}
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при отправке комментария с файлами: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback: создаем комментарий без файлов
+            if files:
+                logger.warning(f"⚠️ Fallback: создаем комментарий без файлов из-за исключения")
+                return await self._create_comment_fallback(issue_id, content, files, is_public, author_id, author_type)
+            return {"error": str(e)}
+
+    async def _create_comment_fallback(self, issue_id: int, content: str, files: List[Dict],
+                                      is_public: bool, author_id: int, author_type: str) -> Dict:
+        """
+        Fallback метод: создает комментарий с уведомлением о файлах, когда API не поддерживает вложения
+        """
+        try:
+            # Создаем текст с уведомлением о файлах
+            file_names = [f['filename'] for f in files]
+            notification_content = f"{content}\n\n[TgBot]\n\n⚠️ Прикрепленные файлы (не удалось загрузить): {', '.join(file_names)}"
+
+            # Создаем обычный комментарий без файлов
             data = {
-                'content': content,
+                'content': notification_content,
                 'public': is_public
             }
 
@@ -465,30 +553,21 @@ class OkdeskAPI:
                 data['author_id'] = author_id
                 data['author_type'] = author_type
 
-            # Если файлы загружены успешно, прикрепляем их
-            if uploaded_attachments:
-                data['attachments'] = [{'id': att['id']} for att in uploaded_attachments]
-                logger.info(f"📎 Добавляем {len(uploaded_attachments)} вложений к комментарию")
-            # Если файлы не удалось загрузить, добавляем информацию о них в текст
-            elif files:
-                file_names = [f['filename'] for f in files]
-                original_content = content
-                data['content'] = f"{original_content}\n\n[Прикрепленные файлы (не удалось загрузить): {', '.join(file_names)}]"
-                logger.warning(f"⚠️ Создаем комментарий с уведомлением о файлах: {file_names}")
-
-            logger.info(f"📤 Создаем комментарий {'с вложениями' if uploaded_attachments else 'с уведомлением о файлах'}")
+            logger.info(f"📝 Создаем fallback комментарий с уведомлением о файлах: {file_names}")
             response = await self._make_request('POST', f'issues/{issue_id}/comments', data)
 
             if response and 'id' in response:
-                logger.info(f"✅ Комментарий создан: ID={response['id']}")
+                logger.info(f"✅ Fallback комментарий создан: ID={response['id']}")
                 return response
             else:
-                logger.error(f"❌ Не удалось создать комментарий: {response}")
+                logger.error(f"❌ Не удалось создать fallback комментарий: {response}")
                 return {}
 
         except Exception as e:
-            logger.error(f"❌ Ошибка при создании комментария с файлами: {e}")
+            logger.error(f"❌ Ошибка при создании fallback комментария: {e}")
             return {}
+
+
 
     async def upload_attachment(self, file_data: bytes, filename: str) -> Optional[Dict]:
         """
@@ -622,11 +701,7 @@ class OkdeskAPI:
             logger.error(f"❌ Ошибка при создании заявки с файлами: {e}")
             return {"error": str(e)}
 
-    async def add_comment(self, issue_id: int, content: str, is_public: bool = True, 
-                         author_id: int = None, author_type: str = None, 
-                         author_name: str = None, client_phone: str = None, 
-                         contact_auth_code: str = None, contact_id: int = None,
-                         attachments: List[Dict] = None, files: List[Dict] = None) -> Dict:
+    async def add_comment(self, issue_id: int, content: str, files: List[Dict] = None, **kwargs) -> Dict:
         """
         Обновленный метод для добавления комментария с поддержкой файлов
         """
@@ -637,22 +712,22 @@ class OkdeskAPI:
                 issue_id=issue_id,
                 content=content,
                 files=files,
-                is_public=is_public,
-                author_id=author_id or contact_id,
-                author_type=author_type
+                is_public=kwargs.get('is_public', True),
+                author_id=kwargs.get('author_id'),
+                author_type=kwargs.get('author_type')
             )
-        
+
         # Если файлов нет, используем обычный JSON запрос
         data = {
             'content': content,
-            'public': is_public
+            'public': kwargs.get('is_public', True)
         }
-        
-        if author_id or contact_id:
-            data['author_id'] = author_id or contact_id
-        if author_type:
-            data['author_type'] = author_type
-        
+
+        if 'author_id' in kwargs and kwargs['author_id']:
+            data['author_id'] = kwargs['author_id']
+        if 'author_type' in kwargs and kwargs['author_type']:
+            data['author_type'] = kwargs['author_type']
+
         logger.info(f"📤 Отправка обычного комментария без файлов")
         return await self._make_request('POST', f'issues/{issue_id}/comments', data)
     
