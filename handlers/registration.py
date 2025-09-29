@@ -125,7 +125,11 @@ async def process_full_name(message: Message, state: FSMContext):
     keyboard = [
         [KeyboardButton(text="📱 Поделиться номером", request_contact=True)]
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard=keyboard, 
+        resize_keyboard=True, 
+        one_time_keyboard=True
+    )
     
     await message.answer(
         "📱 Введите ваш номер телефона:\n"
