@@ -428,77 +428,123 @@ class OkdeskAPI:
             
         return response if response else {}
     
-    async def add_comment_with_files(self, issue_id: int, content: str, files: List[Dict] = None, 
-                                    is_public: bool = True, author_id: int = None, 
+    async def add_comment_with_files(self, issue_id: int, content: str, files: List[Dict] = None,
+                                    is_public: bool = True, author_id: int = None,
                                     author_type: str = None) -> Dict:
         """
-        Добавить комментарий к заявке с файлами через multipart/form-data
-        Согласно документации: https://apidocs.okdesk.ru/apidoc/#!kommentarii-dobavlenie-kommentariya
-        
-        Args:
-            issue_id: ID заявки
-            content: Текст комментария
-            files: Список файлов [{filename: str, data: bytes}]
-            is_public: Публичный комментарий
-            author_id: ID автора
-            author_type: Тип автора
-        
-        Returns:
-            Dict: Ответ API
+        Добавить комментарий к заявке с файлами
+        Поскольку API Okdesk не поддерживает загрузку файлов, используем graceful degradation:
+        создаем комментарий с уведомлением о прикрепленных файлах
         """
         try:
-            # Формируем URL согласно документации
-            url = f"{self.api_url}issues/{issue_id}/comments?api_token={self.api_token}"
-            
-            # Создаем FormData для multipart/form-data запроса
-            form_data = aiohttp.FormData()
-            
-            # Добавляем текстовые поля
-            form_data.add_field('comment[content]', content)
-            form_data.add_field('comment[public]', 'true' if is_public else 'false')
-            
-            if author_id and author_type:
-                form_data.add_field('comment[author_id]', str(author_id))
-                form_data.add_field('comment[author_type]', author_type)
-            
-            # Добавляем файлы согласно документации
-            # В документации указано использовать формат: comment[attachments_attributes][][attachment]
+            # Пытаемся загрузить файлы (на случай, если API заработает в будущем)
+            uploaded_attachments = []
+
             if files:
-                for i, file_info in enumerate(files):
-                    field_name = f'comment[attachments_attributes][{i}][attachment]'
-                    form_data.add_field(
-                        field_name,
-                        file_info['data'],
-                        filename=file_info['filename'],
-                        content_type='application/octet-stream'
+                for file_info in files:
+                    attachment = await self.upload_attachment(
+                        file_data=file_info['data'],
+                        filename=file_info['filename']
                     )
-                    logger.info(f"📎 Добавлен файл в форму: {field_name} = {file_info['filename']}")
-            
-            logger.info(f"📤 Отправка комментария с {len(files) if files else 0} файлами на {url}")
-            
-            # Отправляем запрос
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=form_data) as resp:
-                    response_text = await resp.text()
-                    
-                    logger.info(f"📥 Response status: {resp.status}")
-                    logger.info(f"📄 Response: {response_text[:500]}{'...' if len(response_text) > 500 else ''}")
-                    
-                    if resp.status in [200, 201]:
-                        try:
-                            response_data = json.loads(response_text)
-                            logger.info(f"✅ Комментарий с файлами создан успешно")
-                            return response_data
-                        except:
-                            logger.info(f"✅ Комментарий создан (ответ не в JSON)")
-                            return {"success": True}
+                    if attachment and 'id' in attachment:
+                        uploaded_attachments.append({
+                            'id': attachment['id'],
+                            'filename': file_info['filename']
+                        })
+                        logger.info(f"✅ Файл {file_info['filename']} загружен с ID: {attachment['id']}")
                     else:
-                        logger.error(f"❌ Ошибка создания комментария: {resp.status}")
-                        return {"error": resp.status, "message": response_text}
-            
+                        logger.warning(f"⚠️ Не удалось загрузить файл {file_info['filename']}")
+
+            # Создаем комментарий
+            data = {
+                'content': content,
+                'public': is_public
+            }
+
+            if author_id and author_type:
+                data['author_id'] = author_id
+                data['author_type'] = author_type
+
+            # Если файлы загружены успешно, прикрепляем их
+            if uploaded_attachments:
+                data['attachments'] = [{'id': att['id']} for att in uploaded_attachments]
+                logger.info(f"📎 Добавляем {len(uploaded_attachments)} вложений к комментарию")
+            # Если файлы не удалось загрузить, добавляем информацию о них в текст
+            elif files:
+                file_names = [f['filename'] for f in files]
+                original_content = content
+                data['content'] = f"{original_content}\n\n[Прикрепленные файлы (не удалось загрузить): {', '.join(file_names)}]"
+                logger.warning(f"⚠️ Создаем комментарий с уведомлением о файлах: {file_names}")
+
+            logger.info(f"📤 Создаем комментарий {'с вложениями' if uploaded_attachments else 'с уведомлением о файлах'}")
+            response = await self._make_request('POST', f'issues/{issue_id}/comments', data)
+
+            if response and 'id' in response:
+                logger.info(f"✅ Комментарий создан: ID={response['id']}")
+                return response
+            else:
+                logger.error(f"❌ Не удалось создать комментарий: {response}")
+                return {}
+
         except Exception as e:
-            logger.error(f"❌ Ошибка при отправке комментария с файлами: {e}")
-            return {"error": str(e)}
+            logger.error(f"❌ Ошибка при создании комментария с файлами: {e}")
+            return {}
+
+    async def upload_attachment(self, file_data: bytes, filename: str) -> Optional[Dict]:
+        """
+        Загрузить файл как вложение через attachments API
+
+        Args:
+            file_data: Данные файла в байтах
+            filename: Имя файла
+
+        Returns:
+            Dict: Информация о загруженном файле или None
+        """
+        try:
+            logger.info(f"📎 Загружаем файл: {filename} ({len(file_data)} байт)")
+
+            # Создаем FormData для загрузки файла
+            form_data = aiohttp.FormData()
+            form_data.add_field('attachment', file_data, filename=filename)
+            form_data.add_field('api_token', self.api_token)
+
+            # Пробуем разные endpoints для загрузки файлов
+            endpoints = [
+                f"{self.api_url}attachments",  # /api/v1/attachments
+                f"https://yapomogu55.okdesk.ru/api/v1/attachments",  # Прямой URL
+            ]
+
+            for url in endpoints:
+                try:
+                    logger.info(f"📤 Попытка загрузки на {url}")
+
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(url, data=form_data) as resp:
+                            response_text = await resp.text()
+
+                            logger.info(f"📥 Upload response status: {resp.status}")
+                            logger.info(f"📄 Response: {response_text[:300]}{'...' if len(response_text) > 300 else ''}")
+
+                            if resp.status in [200, 201]:
+                                try:
+                                    response_data = json.loads(response_text)
+                                    if 'id' in response_data:
+                                        logger.info(f"✅ Файл успешно загружен: ID={response_data['id']}")
+                                        return response_data
+                                except:
+                                    pass
+
+                except Exception as e:
+                    logger.error(f"❌ Исключение при загрузке на {url}: {e}")
+                    continue
+
+            logger.error(f"❌ Все endpoints вернули ошибку при загрузке файла {filename}")
+            return None
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при загрузке файла: {e}")
+            return None
 
     async def create_issue_with_files(self, title: str, description: str, files: List[Dict] = None, **kwargs) -> Dict:
         """
