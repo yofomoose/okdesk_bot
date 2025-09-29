@@ -607,17 +607,22 @@ async def notify_user_new_comment(issue, content: str, author: Dict, attachments
     
     try:
         # Сначала отправляем текстовое сообщение
-        sent_message = await bot.send_message(
-            chat_id=issue.telegram_user_id,
+        sent_message = await send_telegram_message_safe(
+            bot, 
+            issue.telegram_user_id,
             text=message,
             reply_markup=keyboard
         )
-        print(f"✅ Уведомление о комментарии отправлено пользователю {issue.telegram_user_id}")
-        print(f"📨 ID отправленного сообщения: {sent_message.message_id}")
-        print(f"🔘 Клавиатура отправлена: {sent_message.reply_markup is not None}")
-        if sent_message.reply_markup:
-            print(f"🔘 Количество кнопок в клавиатуре: {len(sent_message.reply_markup.inline_keyboard)}")
-        
+        if sent_message:
+            print(f"✅ Уведомление о комментарии отправлено пользователю {issue.telegram_user_id}")
+            print(f"📨 ID отправленного сообщения: {sent_message.message_id}")
+            print(f"🔘 Клавиатура отправлена: {sent_message.reply_markup is not None}")
+            if sent_message.reply_markup:
+                print(f"🔘 Количество кнопок в клавиатуре: {len(sent_message.reply_markup.inline_keyboard)}")
+        else:
+            print(f"❌ Не удалось отправить уведомление о комментарии пользователю {issue.telegram_user_id}")
+            return
+            
         # Если есть вложения, скачиваем и отправляем их
         if attachments:
             try:
@@ -629,7 +634,30 @@ async def notify_user_new_comment(issue, content: str, author: Dict, attachments
     except Exception as e:
         print(f"❌ Failed to send comment notification: {e}")
         
-        # Пробуем отправить упрощенное сообщение без клавиатуры
+        # Специальная обработка для Telegram flood control
+        if "TelegramRetryAfter" in str(type(e)) or "retry after" in str(e).lower():
+            print(f"⏳ Telegram flood control, ждем перед повторной попыткой...")
+            import asyncio
+            await asyncio.sleep(10)  # Ждем 10 секунд
+            
+            try:
+                # Повторяем отправку основного сообщения
+                sent_message = await send_telegram_message_safe(
+                    bot,
+                    issue.telegram_user_id,
+                    text=message,
+                    reply_markup=keyboard
+                )
+                if sent_message:
+                    print(f"✅ Уведомление о комментарии отправлено после ожидания")
+                    return  # Успешно отправили, выходим
+                else:
+                    print(f"❌ Повторная отправка не удалась")
+            except Exception as e_retry:
+                print(f"❌ Повторная отправка тоже не удалась: {e_retry}")
+        
+        # Если это не flood control или повторная попытка не удалась,
+        # пробуем отправить упрощенное сообщение без клавиатуры
         try:
             simple_message = (
                 f"💬 Новый комментарий к заявке #{issue.issue_number}\n\n"
@@ -639,11 +667,15 @@ async def notify_user_new_comment(issue, content: str, author: Dict, attachments
                 f"🔗 {issue.okdesk_url}"
             )
             
-            await bot.send_message(
-                chat_id=issue.telegram_user_id,
+            result = await send_telegram_message_safe(
+                bot,
+                issue.telegram_user_id,
                 text=simple_message
             )
-            print(f"✅ Упрощенное уведомление о комментарии отправлено пользователю {issue.telegram_user_id}")
+            if result:
+                print(f"✅ Упрощенное уведомление о комментарии отправлено пользователю {issue.telegram_user_id}")
+            else:
+                print(f"❌ Не удалось отправить упрощенное уведомление")
         except Exception as e2:
             print(f"❌ Даже упрощенное уведомление не удалось отправить: {e2}")
             import traceback
@@ -681,6 +713,50 @@ def clean_html_content(content: str) -> str:
     clean_text = clean_text.replace('\r', '').replace('\t', ' ')
     
     return clean_text.strip()
+
+async def send_telegram_message_safe(bot, chat_id: int, **kwargs):
+    """
+    Безопасная отправка сообщения в Telegram с обработкой flood control
+    
+    Args:
+        bot: Экземпляр бота
+        chat_id: ID чата
+        **kwargs: Параметры для send_message, send_photo, etc.
+    
+    Returns:
+        Результат отправки или None при ошибке
+    """
+    try:
+        # Определяем метод отправки
+        if 'text' in kwargs:
+            method = bot.send_message
+        elif 'photo' in kwargs:
+            method = bot.send_photo
+        elif 'video' in kwargs:
+            method = bot.send_video
+        elif 'document' in kwargs:
+            method = bot.send_document
+        elif 'media' in kwargs:
+            method = bot.send_media_group
+        else:
+            raise ValueError("Неизвестный тип сообщения")
+            
+        return await method(chat_id=chat_id, **kwargs)
+        
+    except Exception as e:
+        if "TelegramRetryAfter" in str(type(e)) or "retry after" in str(e).lower():
+            print(f"⏳ Telegram flood control при отправке, ждем...")
+            import asyncio
+            await asyncio.sleep(10)  # Ждем 10 секунд
+            
+            try:
+                return await method(chat_id=chat_id, **kwargs)
+            except Exception as e_retry:
+                print(f"❌ Повторная отправка не удалась: {e_retry}")
+                return None
+        else:
+            # Другая ошибка, не flood control
+            raise e
 
 async def send_attachments_to_user(telegram_user_id: int, attachments: List[Dict], issue_number: str, issue_id: int = None):
     """
@@ -762,19 +838,24 @@ async def send_attachments_to_user(telegram_user_id: int, attachments: List[Dict
                 try:
                     if len(media_group) == 1:
                         # Одно изображение - отправляем как фото
-                        await bot.send_photo(
-                            chat_id=telegram_user_id,
+                        result = await send_telegram_message_safe(
+                            bot,
+                            telegram_user_id,
                             photo=media_group[0].media,
                             caption=f"📎 Изображение к заявке #{issue_number}"
                         )
                     else:
                         # Несколько изображений - отправляем как альбом
                         media_group[0].caption = f"📎 Изображения к заявке #{issue_number}"
-                        await bot.send_media_group(
-                            chat_id=telegram_user_id,
+                        result = await send_telegram_message_safe(
+                            bot,
+                            telegram_user_id,
                             media=media_group
                         )
-                    print(f"✅ Отправлено {len(media_group)} изображений")
+                    if result:
+                        print(f"✅ Отправлено {len(media_group)} изображений")
+                    else:
+                        print(f"❌ Не удалось отправить изображения")
                 except Exception as e:
                     print(f"❌ Ошибка отправки медиа-группы: {e}")
 
@@ -783,20 +864,28 @@ async def send_attachments_to_user(telegram_user_id: int, attachments: List[Dict
                 try:
                     if file_type == 'video':
                         # Отправляем как видео
-                        await bot.send_video(
-                            chat_id=telegram_user_id,
+                        result = await send_telegram_message_safe(
+                            bot,
+                            telegram_user_id,
                             video=input_file,
                             caption=f"🎥 Видео к заявке #{issue_number}: {filename}"
                         )
-                        print(f"✅ Отправлено видео: {filename}")
+                        if result:
+                            print(f"✅ Отправлено видео: {filename}")
+                        else:
+                            print(f"❌ Не удалось отправить видео: {filename}")
                     else:
                         # Обычный документ
-                        await bot.send_document(
-                            chat_id=telegram_user_id,
+                        result = await send_telegram_message_safe(
+                            bot,
+                            telegram_user_id,
                             document=input_file,
                             caption=f"📎 Документ к заявке #{issue_number}: {filename}"
                         )
-                        print(f"✅ Отправлен документ: {filename}")
+                        if result:
+                            print(f"✅ Отправлен документ: {filename}")
+                        else:
+                            print(f"❌ Не удалось отправить документ: {filename}")
                 except Exception as e:
                     print(f"❌ Ошибка отправки файла {filename}: {e}")
 
