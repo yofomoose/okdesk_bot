@@ -123,7 +123,7 @@ async def process_full_name(message: Message, state: FSMContext):
     
     # Создаем клавиатуру с кнопкой поделиться номером
     keyboard = [
-        [KeyboardButton("📱 Поделиться номером", request_contact=True)]
+        [KeyboardButton(text="📱 Поделиться номером", request_contact=True)]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     
