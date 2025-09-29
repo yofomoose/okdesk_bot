@@ -1356,6 +1356,80 @@ class OkdeskAPI:
             client_phone=phone if not contact_id else None
         )
     
+    async def download_attachment(self, attachment_id: int) -> Optional[bytes]:
+        """
+        Скачать вложение по ID
+        
+        Args:
+            attachment_id: ID вложения в Okdesk
+            
+        Returns:
+            bytes: Данные файла или None в случае ошибки
+        """
+        try:
+            # Пробуем разные варианты URL для скачивания файлов
+            download_urls = [
+                f"{self.api_url}attachments/{attachment_id}",  # /api/v1/attachments/{id}
+                f"{self.api_url}attachments/{attachment_id}/download",  # /api/v1/attachments/{id}/download
+                f"https://yapomogu55.okdesk.ru/attachments/{attachment_id}",  # Прямая ссылка
+                f"https://yapomogu55.okdesk.ru/attachments/{attachment_id}/download",  # Прямая ссылка с download
+            ]
+            
+            params = {'api_token': self.api_token}
+            
+            async with aiohttp.ClientSession() as session:
+                for url in download_urls:
+                    try:
+                        logger.info(f"📥 Попытка скачивания файла с URL: {url}")
+                        
+                        async with session.get(url, params=params) as resp:
+                            logger.info(f"📥 Ответ: {resp.status}, Content-Type: {resp.headers.get('Content-Type')}")
+                            
+                            if resp.status == 200:
+                                # Проверяем, что это файл, а не JSON с ошибкой
+                                content_type = resp.headers.get('Content-Type', '')
+                                if 'application/json' not in content_type:
+                                    file_data = await resp.read()
+                                    logger.info(f"✅ Файл успешно скачан: {len(file_data)} байт")
+                                    return file_data
+                                else:
+                                    # Это JSON ответ, возможно с ошибкой
+                                    error_text = await resp.text()
+                                    logger.warning(f"⚠️ Получен JSON вместо файла: {error_text}")
+                            else:
+                                error_text = await resp.text()
+                                logger.warning(f"⚠️ Ошибка скачивания с {url}: {resp.status} - {error_text}")
+                                
+                    except Exception as e:
+                        logger.error(f"❌ Исключение при скачивании с {url}: {e}")
+                        continue
+            
+            logger.error(f"❌ Не удалось скачать файл с ID {attachment_id} ни одним способом")
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка при скачивании вложения {attachment_id}: {e}")
+            return None
+
+    async def get_attachment_info(self, attachment_id: int) -> Optional[Dict]:
+        """
+        Получить информацию о вложении
+        
+        Args:
+            attachment_id: ID вложения
+            
+        Returns:
+            Dict: Информация о файле (имя, размер, тип) или None
+        """
+        try:
+            response = await self._make_request('GET', f'attachments/{attachment_id}')
+            if response and isinstance(response, dict):
+                return response
+            return None
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения информации о вложении {attachment_id}: {e}")
+            return None
+
     async def close(self):
         """Метод для закрытия ресурсов (для совместимости)"""
         # В данной реализации нет долгоживущих ресурсов, которые требуется закрывать

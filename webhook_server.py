@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import json
 import hmac
 import hashlib
@@ -255,6 +255,13 @@ async def handle_comment_created(data: Dict[str, Any]):
             is_from_okdesk=True
         )
         
+        # Проверяем наличие вложений в комментарии
+        attachments = comment_data.get("attachments", [])
+        if attachments:
+            print(f"📎 Найдено {len(attachments)} вложений в комментарии")
+            for i, attachment in enumerate(attachments):
+                print(f"   📎 Вложение {i+1}: {attachment}")
+        
         # Проверяем, изменился ли статус заявки при добавлении комментария
         current_status = issue_data.get("status")
         if isinstance(current_status, dict):
@@ -301,7 +308,7 @@ async def handle_comment_created(data: Dict[str, Any]):
         
         if should_notify_comment:
             # Уведомляем пользователя о новом комментарии
-            await notify_user_new_comment(issue, content, author_data)
+            await notify_user_new_comment(issue, content, author_data, attachments)
             print(f"✅ Пользователь уведомлен о новом комментарии")
         else:
             print(f"ℹ️ Уведомление о комментарии пропущено (завершение от исполнителя)")
@@ -519,10 +526,12 @@ async def notify_user_status_change(issue, new_status: str, old_status: str = No
         finally:
             db.close()
 
-async def notify_user_new_comment(issue, content: str, author: Dict):
+async def notify_user_new_comment(issue, content: str, author: Dict, attachments: List[Dict] = None):
     """Уведомление пользователя о новом комментарии"""
     from bot import bot  # Импортируем бота
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputMediaDocument
+    from aiogram.types import BufferedInputFile
+    import io
     
     # Правильно формируем имя автора
     author_name = "Неизвестен"
@@ -569,6 +578,7 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
     print(f"🔘 Кнопки: {[btn.text for row in keyboard.inline_keyboard for btn in row]}")
     
     try:
+        # Сначала отправляем текстовое сообщение
         sent_message = await bot.send_message(
             chat_id=issue.telegram_user_id,
             text=message,
@@ -579,6 +589,11 @@ async def notify_user_new_comment(issue, content: str, author: Dict):
         print(f"🔘 Клавиатура отправлена: {sent_message.reply_markup is not None}")
         if sent_message.reply_markup:
             print(f"🔘 Количество кнопок в клавиатуре: {len(sent_message.reply_markup.inline_keyboard)}")
+        
+        # Если есть вложения, скачиваем и отправляем их
+        if attachments:
+            await send_attachments_to_user(issue.telegram_user_id, attachments, issue.issue_number)
+            
     except Exception as e:
         print(f"❌ Failed to send comment notification: {e}")
         
@@ -634,6 +649,126 @@ def clean_html_content(content: str) -> str:
     clean_text = clean_text.replace('\r', '').replace('\t', ' ')
     
     return clean_text.strip()
+
+async def send_attachments_to_user(telegram_user_id: int, attachments: List[Dict], issue_number: str):
+    """
+    Отправляет вложения из комментария пользователю в Telegram
+    
+    Args:
+        telegram_user_id: ID пользователя в Telegram
+        attachments: Список вложений из webhook
+        issue_number: Номер заявки для контекста
+    """
+    from bot import bot
+    from aiogram.types import BufferedInputFile, InputMediaPhoto, InputMediaDocument
+    import mimetypes
+    
+    if not attachments:
+        return
+    
+    print(f"📎 Отправка {len(attachments)} вложений пользователю {telegram_user_id}")
+    
+    okdesk_api = OkdeskAPI()
+    try:
+        media_group = []
+        individual_files = []
+        
+        for i, attachment in enumerate(attachments):
+            try:
+                # Извлекаем информацию о файле
+                file_id = attachment.get('id')
+                filename = attachment.get('filename', attachment.get('name', f'file_{i+1}'))
+                file_size = attachment.get('size', 0)
+                
+                print(f"📎 Обработка вложения {i+1}: ID={file_id}, filename={filename}, size={file_size}")
+                
+                if not file_id:
+                    print(f"⚠️ Пропускаем вложение без ID: {attachment}")
+                    continue
+                
+                # Скачиваем файл из Okdesk
+                file_data = await okdesk_api.download_attachment(file_id)
+                
+                if not file_data:
+                    print(f"❌ Не удалось скачать файл {filename} (ID: {file_id})")
+                    continue
+                
+                print(f"✅ Файл {filename} скачан: {len(file_data)} байт")
+                
+                # Определяем тип файла
+                mime_type, _ = mimetypes.guess_type(filename)
+                is_image = mime_type and mime_type.startswith('image/')
+                
+                # Создаем BufferedInputFile
+                input_file = BufferedInputFile(file_data, filename=filename)
+                
+                # Для изображений размером менее 10MB создаем media group
+                if is_image and len(file_data) < 10 * 1024 * 1024:  # 10MB
+                    media_group.append(InputMediaPhoto(
+                        media=input_file,
+                        caption=f"📎 {filename}" if len(media_group) == 0 else None  # Только к первому фото
+                    ))
+                else:
+                    # Для документов и больших файлов отправляем отдельно
+                    individual_files.append((input_file, filename, is_image))
+                    
+            except Exception as e:
+                print(f"❌ Ошибка обработки вложения {i+1}: {e}")
+                continue
+        
+        # Отправляем медиа-группу (если есть изображения)
+        if media_group:
+            try:
+                if len(media_group) == 1:
+                    # Одно изображение - отправляем как фото
+                    await bot.send_photo(
+                        chat_id=telegram_user_id,
+                        photo=media_group[0].media,
+                        caption=f"📎 Изображение к заявке #{issue_number}"
+                    )
+                else:
+                    # Несколько изображений - отправляем как альбом
+                    media_group[0].caption = f"📎 Изображения к заявке #{issue_number}"
+                    await bot.send_media_group(
+                        chat_id=telegram_user_id,
+                        media=media_group
+                    )
+                print(f"✅ Отправлено {len(media_group)} изображений")
+            except Exception as e:
+                print(f"❌ Ошибка отправки медиа-группы: {e}")
+        
+        # Отправляем документы отдельно
+        for input_file, filename, is_image in individual_files:
+            try:
+                if is_image:
+                    # Большое изображение отправляем как документ
+                    await bot.send_document(
+                        chat_id=telegram_user_id,
+                        document=input_file,
+                        caption=f"📎 Изображение к заявке #{issue_number}: {filename}"
+                    )
+                else:
+                    # Обычный документ
+                    await bot.send_document(
+                        chat_id=telegram_user_id,
+                        document=input_file,
+                        caption=f"📎 Документ к заявке #{issue_number}: {filename}"
+                    )
+                print(f"✅ Отправлен документ: {filename}")
+            except Exception as e:
+                print(f"❌ Ошибка отправки документа {filename}: {e}")
+        
+        if media_group or individual_files:
+            print(f"✅ Все вложения обработаны для заявки #{issue_number}")
+        else:
+            print(f"⚠️ Не удалось обработать ни одного вложения для заявки #{issue_number}")
+            
+    except Exception as e:
+        print(f"❌ Общая ошибка при отправке вложений: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        await okdesk_api.close()
 
 @app.get("/health")
 async def health_check():
