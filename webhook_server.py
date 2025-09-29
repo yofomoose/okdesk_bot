@@ -255,10 +255,11 @@ async def handle_comment_created(data: Dict[str, Any]):
             is_from_okdesk=True
         )
         
-        # Проверяем наличие вложений в комментарии
-        attachments = comment_data.get("attachments", [])
+        # Проверяем наличие вложений в комментарии или в заявке
+        # В webhook данные вложения могут быть как в comment.attachments, так и в issue.attachments
+        attachments = comment_data.get("attachments", []) or issue_data.get("attachments", [])
         if attachments:
-            print(f"📎 Найдено {len(attachments)} вложений в комментарии")
+            print(f"📎 Найдено {len(attachments)} вложений в комментарии/заявке")
             for i, attachment in enumerate(attachments):
                 print(f"   📎 Вложение {i+1}: {attachment}")
                 print(f"      ID: {attachment.get('id')}")
@@ -266,8 +267,9 @@ async def handle_comment_created(data: Dict[str, Any]):
                 print(f"      Size: {attachment.get('size', attachment.get('attachment_file_size', 0))}")
                 print(f"      URL: {attachment.get('url', 'no url')}")
         else:
-            print(f"📎 Вложений в комментарии не найдено")
+            print(f"📎 Вложений в комментарии и заявке не найдено")
             print(f"🔍 Доступные поля comment_data: {list(comment_data.keys())}")
+            print(f"🔍 Доступные поля issue_data: {list(issue_data.keys())}")
         
         # Проверяем, изменился ли статус заявки при добавлении комментария
         current_status = issue_data.get("status")
