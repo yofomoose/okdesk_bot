@@ -265,13 +265,15 @@ async def handle_comment_created(data: Dict[str, Any]):
         )
         
         # Проверяем наличие вложений в комментарии или в заявке
-        # В webhook данные вложения могут быть как в comment.attachments, так и в issue.attachments
+        # В webhook данные вложения могут быть как в comment.attachments, так и в issue.attachments, так и в event.attachments
         comment_attachments = comment_data.get("attachments", [])
         issue_attachments = issue_data.get("attachments", [])
-        attachments = comment_attachments or issue_attachments
+        event_attachments = event_data.get("attachments", [])
+        attachments = comment_attachments or issue_attachments or event_attachments
 
         print(f"🔍 comment_attachments: {len(comment_attachments)} элементов")
         print(f"🔍 issue_attachments: {len(issue_attachments)} элементов")
+        print(f"🔍 event_attachments: {len(event_attachments)} элементов")
 
         if attachments:
             print(f"📎 Найдено {len(attachments)} вложений в комментарии/заявке")
@@ -285,10 +287,13 @@ async def handle_comment_created(data: Dict[str, Any]):
             print(f"📎 Вложений в комментарии и заявке не найдено")
             print(f"🔍 Доступные поля comment_data: {list(comment_data.keys())}")
             print(f"🔍 Доступные поля issue_data: {list(issue_data.keys())}")
+            print(f"🔍 Доступные поля event_data: {list(event_data.keys())}")
             if issue_attachments:
                 print(f"⚠️ issue_attachments не пустой, но не используется: {issue_attachments}")
             if comment_attachments:
                 print(f"⚠️ comment_attachments не пустой, но не используется: {comment_attachments}")
+            if event_attachments:
+                print(f"⚠️ event_attachments не пустой, но не используется: {event_attachments}")
         
         # Проверяем, изменился ли статус заявки при добавлении комментария
         current_status = issue_data.get("status")
