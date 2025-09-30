@@ -1525,6 +1525,29 @@ class OkdeskAPI:
             bytes: Данные файла или None в случае ошибки
         """
         try:
+            # Сначала пробуем получить информацию о вложении
+            if issue_id:
+                try:
+                    attachment_info = await self._make_request('GET', f'issues/{issue_id}/attachments/{attachment_id}')
+                    logger.info(f"📋 Информация о вложении: {attachment_info}")
+                    
+                    if attachment_info and isinstance(attachment_info, dict):
+                        # Если есть attachment_url, попробуем скачать оттуда
+                        if 'attachment_url' in attachment_info:
+                            url = attachment_info['attachment_url']
+                            logger.info(f"📥 Попытка скачивания с attachment_url: {url}")
+                            
+                            async with aiohttp.ClientSession() as session:
+                                async with session.get(url) as resp:
+                                    if resp.status == 200:
+                                        file_data = await resp.read()
+                                        logger.info(f"✅ Файл скачан с attachment_url: {len(file_data)} байт")
+                                        return file_data
+                        else:
+                            logger.warning(f"⚠️ В информации о вложении нет attachment_url")
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось получить информацию о вложении: {e}")
+
             # Пробуем разные варианты URL для скачивания файлов
             download_urls = []
             
